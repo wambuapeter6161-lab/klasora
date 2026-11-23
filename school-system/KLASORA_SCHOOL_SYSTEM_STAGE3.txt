@@ -1,0 +1,22 @@
+KLASORA SCHOOL SYSTEM — STAGE 3 (SPARK EDITION)
+Student records are now connected to Cloud Firestore for the signed-in school administrator.
+
+CHANGES
+- After Firebase administrator sign-in, the app loads students from schools/{schoolId}/students.
+- Bundled demonstration learners are hidden for Firebase school-admin sessions.
+- New student registrations are written to that school's students subcollection.
+- UPI numbers are used as document IDs (slashes are replaced for Firestore document IDs).
+- Firestore rules allow only the linked school administrator or Super Admin to read/write that school's student records.
+- Other operational modules remain on the old local prototype storage and are NOT migrated yet.
+
+SETUP
+1. Keep your previous ZIP files as backups.
+2. Extract this ZIP and host the contents over HTTPS.
+3. In Firebase Console > Firestore Database > Rules, replace the current rules with the included firestore.rules and Publish.
+4. Test using a school administrator account created by Super Admin v12.
+5. Open Students. A new school's roster should initially be empty. Register a learner; it should appear after refresh/sign-in.
+
+IMPORTANT
+This is an incremental migration, not a complete production release. Only Students is migrated.
+Teachers, parents, attendance, exams, fees, expenses, classes, library, transport, inventory, communications, reports, settings and user provisioning still need migration and role-specific security.
+Do not use real learner data until the remaining modules and staff/parent authentication have been completed and tested.

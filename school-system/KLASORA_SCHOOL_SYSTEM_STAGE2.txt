@@ -1,0 +1,30 @@
+KLASORA SCHOOL SYSTEM — STAGE 2 (SPARK EDITION)
+
+This package adds Firebase Authentication for the main school administrator using the same Firebase project and school-record structure as Klasora Super Admin v12 Spark Edition.
+
+WHAT IS INCLUDED
+- Firebase Authentication email/password sign-in.
+- Sign-in verification against the administrator's linked Firestore school record (adminUid).
+- Verification of school code, school name, administrator name, administrator email and active school status.
+- First-login password-change screen. The new password is saved to Firebase Authentication; it is not written to Firestore or localStorage.
+- Updated Firestore rules allowing the linked administrator to complete only the first-login flags on their own school document.
+- Original School System modules and design retained.
+
+IMPORTANT SETUP
+1. Keep the original Klasora_V4_Final.zip as your backup.
+2. In Firebase Console, open Firestore Database > Rules.
+3. Replace the rules with the firestore.rules file in this ZIP and publish them. These rules are aligned with the Super Admin v12 Spark school document structure.
+4. Confirm Email/Password sign-in is enabled in Firebase Authentication.
+5. Host the extracted files on Firebase Hosting or another HTTPS static host. ES module imports from Firebase require a supported browser and network access.
+6. Test with one school administrator account created by Super Admin v12.
+
+CURRENT LIMITATIONS — PLEASE READ
+- This stage connects only the main school administrator sign-in. Teacher, accountant and parent sign-ins are not yet connected to Firebase.
+- Existing school modules still use the V4 browser/localStorage prototype data model. They have NOT yet been migrated to Firestore or isolated by schoolId.
+- Existing sample/demo records may still appear in the interface. Do not enter real learner, parent, staff, assessment or financial information yet.
+- The first-login change is enforced by the application flow, but a client-only Spark application cannot provide the same tamper-proof enforcement as a trusted backend. A secure backend is required for stronger invitation enforcement and privileged account provisioning.
+- No operational school collections are opened in Firestore rules yet. The rules intentionally deny access to all collections other than the limited Super Admin/school-record flows.
+- Do not treat this stage as production-ready for real school data.
+
+NEXT STAGE
+Migrate each module's records from browser storage to Firestore under a school-specific path, add role-specific rules, and then connect teacher, accountant and parent accounts. Preserve/export any local prototype data before that migration.
