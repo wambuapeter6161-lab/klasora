@@ -92,6 +92,34 @@ sum();chips()}
 function toggleSub(id){const s=getSchool(id);if(!s)return;const pause=s.subscriptionStatus!=='Paused';openSheet(pause?'PAUSE ACCESS':'RESUME ACCESS',pause?'Pause subscription?':'Resume subscription?',`<p class="sheet-note">${pause?'Pause the subscription for':'Resume the subscription for'} <b>${safe(s.name)}</b>? This updates the school's Firestore subscription record.</p>`,[{label:'Cancel',cls:'soft',fn:closeSheet},{label:pause?'Pause subscription':'Resume subscription',cls:pause?'danger':'primary',fn:async()=>{const u=getSchool(id);u.subscriptionStatus=pause?'Paused':'Active';u.subscriptionUpdatedAt=new Date().toISOString();await saveSchool(u);closeSheet();renderAll();if(!$('detailModal').classList.contains('hidden'))details(id)}}])}
 function deleteSchool(){const s=getSchool(selectedId);if(!s)return;openSheet('DANGER ZONE','School deletion unavailable on Spark','<p class=\"sheet-note\">Deleting a school and safely removing its Firebase Authentication account requires a trusted server backend. This action is disabled on the Spark-only build to prevent orphaned accounts or incomplete deletion.</p>',[{label:'Close',cls:'primary',fn:closeSheet}]);}
 function secureLegacy(){openSheet('SECURITY','No legacy passwords to migrate','<p class=\"sheet-note\">This Spark setup creates new administrator accounts directly in Firebase Authentication and does not save temporary passwords in Firestore. Server-side legacy migration is not available on the Spark plan.</p>',[{label:'Close',cls:'primary',fn:closeSheet}]);}
+$('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const error=$('loginError');
+  const button=$('loginForm').querySelector('button[type=submit],button:not([type])');
+  if(button)button.disabled=true;
+  error.textContent='Signing in…';
+  try{
+    const credential=await signInWithEmailAndPassword(auth,$('username').value.trim(),$('password').value);
+    if(credential.user.uid!==SUPER_ADMIN_UID){
+      await signOut(auth);
+      throw new Error('This Firebase account is not authorized as the Klasora Super Admin.');
+    }
+    $('loginScreen').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    authEmail=credential.user.email||'';
+    $('loginTime').textContent=new Date().toLocaleString();
+    renderProfile();
+    await syncProfileDown();
+    renderProfile();
+    await loadSchools();
+    error.textContent='';
+  }catch(err){
+    error.textContent=err.code==='auth/invalid-credential'||err.code==='auth/wrong-password'||err.code==='auth/user-not-found'
+      ?'Incorrect Super Admin email or password.'
+      :err.message||'Sign-in failed. Please try again.';
+    if(auth.currentUser)try{await signOut(auth)}catch(signOutError){}
+  }finally{if(button)button.disabled=false;}
+});
 $('logout').onclick=async()=>{await signOut(auth);location.reload()};
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>showPage(b.dataset.page,b));$('genPw').onclick=()=>{$('adminTemp').value=genPw()};$('bkJson').onclick=()=>doBackup('json');$('bkCsv').onclick=()=>doBackup('csv');$('sideClose').onclick=()=>{window.closeSide();showPage('overview')};document.addEventListener('click',e=>{const c=e.target.closest('[data-rp]');if(c){rpDays=+c.dataset.rp;renderReports()}});const EYE='<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',EYEOFF='<path d="M3 3l18 18M10.6 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 004.2 4.2"/>';$('togglePw').onclick=()=>{const p=$('password'),show=p.type==='password';p.type=show?'text':'password';$('togglePw').querySelector('svg').innerHTML=show?EYEOFF:EYE;$('togglePw').setAttribute('aria-label',show?'Hide password':'Show password')};
 if($('sideSearch'))$('sideSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll('#sidebar .nav[data-page]').forEach(b=>b.style.display=!q||b.textContent.toLowerCase().includes(q)?'flex':'none')});

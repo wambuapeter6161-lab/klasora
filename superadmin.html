@@ -140,7 +140,7 @@
     <div class="modal-actions" id="sheetActions"></div>
   </div>
 </div>
-<script type="module" src="superadmin.js?v=11"></script>
+<script type="module" src="superadmin.js?v=12"></script>
 <script>(function(){var a=document.getElementById("app"),s=document.getElementById("sidebar"),b=document.getElementById("menuBtn"),c=document.getElementById("scrim"),mq=window.matchMedia("(max-width:1100px),(max-height:520px)");function set(o){s.classList.toggle("open",o);c.classList.toggle("show",o)}b.addEventListener("click",function(){if(mq.matches)set(!s.classList.contains("open"));else a.classList.toggle("side-hidden")});c.addEventListener("click",function(){set(false)});s.addEventListener("click",function(e){if(mq.matches&&(e.target.closest(".nav")||e.target.closest("#logout")))set(false)});window.closeSide=function(){set(false);if(!mq.matches)a.classList.add("side-hidden")}})();</script>
 </body>
 </html>
