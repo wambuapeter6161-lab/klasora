@@ -165,7 +165,17 @@ function getLock(){try{return JSON.parse(store.get(LOCK_KEY))||{fails:0,until:0}
 $('demoChips').innerHTML=USERS.map(u=>`<button type="button" class="demo-chip" data-user="${u.username}"><strong>${ROLES[u.role].label}</strong><small>${u.username} · ${u.password}</small></button>`).join('');
 $('demoChips').addEventListener('click',e=>{const b=e.target.closest('.demo-chip');if(!b)return;const u=USERS.find(x=>x.username===b.dataset.user);$('loginUser').value=u.username;$('loginPass').value=u.password;$('loginSchoolName').value='Greenfield Academy';$('loginSchoolCode').value='GFA001';showLoginMsg('');});
 $('pwToggle').onclick=()=>{const p=$('loginPass'),show=p.type==='password';p.type=show?'text':'password';$('pwToggle').textContent=show?'Hide':'Show';};
-$('loginForm').addEventListener('submit',e=>{
+/* ---------- Central school lookup (Firebase) ---------- */
+const FB={key:'AIzaSyBJ26ARylloIA66941AsSkqIt1HCDjlmps',project:'klasora-2fc4a'};
+let fbToken='';
+const fsVal=v=>v==null?null:('stringValue' in v?v.stringValue:('booleanValue' in v?v.booleanValue:('integerValue' in v?Number(v.integerValue):null)));
+const fsDoc=j=>{const o={};Object.entries((j&&j.fields)||{}).forEach(([k,v])=>o[k]=fsVal(v));return o};
+const FS='https://firestore.googleapis.com/v1/projects/'+FB.project+'/databases/(default)/documents/';
+async function fsGet(path,token){const r=await fetch(FS+path,{headers:token?{Authorization:'Bearer '+token}:{}});if(r.status===404)return{missing:true};if(!r.ok)return{denied:true};return fsDoc(await r.json())}
+async function fbSignIn(email,pass){try{const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB.key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,returnSecureToken:true})});return r.ok?await r.json():null}catch(e){return null}}
+async function fbSetPassword(token,pw){try{await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update?key='+FB.key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:token,password:pw,returnSecureToken:false})})}catch(e){}}
+async function fbMarkChanged(schoolId){try{await fetch(FS+'schools/'+schoolId+'?updateMask.fieldPaths=mustChangePassword',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+fbToken},body:JSON.stringify({fields:{mustChangePassword:{booleanValue:false}}})})}catch(e){}}
+$('loginForm').addEventListener('submit',async e=>{
  e.preventDefault();
  const lock=getLock(),now=Date.now();
  if(lock.until>now){showLoginMsg(`Too many failed attempts. Try again in ${Math.ceil((lock.until-now)/1000)} seconds.`);return}
@@ -177,10 +187,35 @@ $('loginForm').addEventListener('submit',e=>{
  // Central school administrator account created by the Willbrod Labs Super Admin portal.
  if(schoolCode){
   let registry=[];try{registry=JSON.parse(localStorage.getItem('klasora_central_schools')||'[]')}catch(_e){}
-  const school=registry.find(x=>String(x.code||'').toUpperCase()===schoolCode&&x.status==='Active');
+  let school=null,meta=null;
+  try{meta=await fsGet('schoolCodes/'+encodeURIComponent(schoolCode))}catch(_e){meta=null}
+  if(meta&&!meta.missing&&!meta.denied){
+   if(!(meta.active===true||meta.isActive===true)){showLoginMsg('This school is not active. Please contact the platform administrator.');return;}
+   school={code:meta.code||schoolCode,id:meta.schoolId,name:meta.schoolName,adminUid:meta.adminUid,fb:true};
+  }else{
+   school=registry.find(x=>String(x.code||'').toUpperCase()===schoolCode&&x.status==='Active')||null;
+  }
   if(!school){showLoginMsg('School code not found or school is not active. Check the code with your school.');return;}
+  if(school.fb&&email&&schoolName===String(school.name||'').trim().toLowerCase()){
+   const sess=await fbSignIn(email,pass);
+   if(sess&&sess.localId===school.adminUid){
+    const sd=await fsGet('schools/'+school.id,sess.idToken);
+    const d=(sd&&!sd.missing&&!sd.denied)?sd:{};
+    if((d.status&&d.status!=='Active')||d.subscriptionStatus==='Paused'){showLoginMsg('This school is not active. Please contact the platform administrator.');return;}
+    const adminName=String(d.adminName||name);
+    if(name===adminName.trim().toLowerCase()){
+     u=USERS.find(x=>x.id==='central_'+school.id);
+     if(!u){u={id:'central_'+school.id,username:adminName,name:adminName,email,initials:schoolInitials(adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:school.code,schoolName:school.name,poBox:d.poBox||''};USERS.push(u);}
+     const sc=CREDS[u.id];if(sc){u.salt=sc.salt;u.passHash=sc.hash;u.mustChange=!!sc.must;}
+     if(!passOk(u,pass))setCreds(u,pass,d.mustChangePassword===true);
+     fbToken=sess.idToken;
+     store.set(SCHOOL_KEY,JSON.stringify({name:school.name,type:'School',motto:'',logo:'',phones:[],poBox:d.poBox||'',schoolCode:school.code}));applySchool();
+     try{registry=registry.filter(x=>x.id!==school.id);registry.push({id:school.id,code:school.code,name:school.name,status:'Active',activated:true,adminName,adminEmail:email,poBox:d.poBox||''});localStorage.setItem('klasora_central_schools',JSON.stringify(registry))}catch(_e){}
+    }
+   }
+  }
   const identity=String(name||'').trim().toLowerCase();
-  if(identity===String(school.adminName||'').trim().toLowerCase()&&email===String(school.adminEmail||'').trim().toLowerCase()&&schoolName===String(school.name||'').trim().toLowerCase()){
+  if(!school.fb&&identity===String(school.adminName||'').trim().toLowerCase()&&email===String(school.adminEmail||'').trim().toLowerCase()&&schoolName===String(school.name||'').trim().toLowerCase()){
    u=USERS.find(x=>x.id==='central_'+school.id);
    if(!u){u={id:'central_'+school.id,username:school.adminName,name:school.adminName,email:school.adminEmail,initials:schoolInitials(school.adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:school.code,schoolName:school.name,poBox:school.poBox};USERS.push(u);}
    const savedCred=CREDS[u.id];if(savedCred){u.salt=savedCred.salt;u.passHash=savedCred.hash;u.mustChange=!!savedCred.must;}
@@ -1146,7 +1181,7 @@ function changePassword(u,cur,n1,n2,forced){
  if(n1.length<6)return'Choose a password with at least 6 characters.';
  if(n1!==n2)return'The two passwords do not match.';
  if(passOk(u,n1))return'Choose a password different from the current one.';
- setCreds(u,n1,false);return'';}
+ setCreds(u,n1,false);if(String(u.id).startsWith('central_')&&fbToken){fbSetPassword(fbToken,n1);fbMarkChanged(String(u.id).slice(8));}return'';}
 $('pwBackdrop').addEventListener('click',e=>{
  if(e.target.id==='pwBackdrop'&&!pwForced){closePw();return}
  const a=e.target.dataset&&e.target.dataset.pw;if(!a)return;
