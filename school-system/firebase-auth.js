@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
@@ -12,6 +12,8 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig, "klasoraSchoolSystem");
 const auth = getAuth(app);
+// Second app instance: creates staff logins without signing the school administrator out.
+const authProv = getAuth(initializeApp(firebaseConfig, "klasoraProvisioning"));
 const db = getFirestore(app);
 const norm = v => String(v || "").trim().toUpperCase();
 
@@ -89,4 +91,64 @@ async function createSchoolStudent(schoolId, student) {
   return { ...record, id: documentId, date: new Date().toISOString().slice(0, 10) };
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Loads only the students this user's role is allowed to see (matches the Firestore rules).
+async function loadStudents(r) {
+  const col = collection(db, "schools", r.schoolId, "students");
+  const role = r.profile.role;
+  let docs = [];
+  if (role === "admin" || role === "accountant") {
+    docs = (await getDocs(col)).docs;
+  } else if (role === "teacher") {
+    const parts = await Promise.all((r.profile.classes || []).map(c => getDocs(query(col, where("cls", "==", c)))));
+    docs = parts.flatMap(p => p.docs);
+  } else if (role === "parent") {
+    const snaps = await Promise.all((r.profile.children || []).map(id => getDoc(doc(col, id))));
+    docs = snaps.filter(s => s.exists());
+  }
+  return docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function saveStudents(schoolId, list) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  for (let i = 0; i < list.length; i += 400) {
+    const batch = writeBatch(db);
+    list.slice(i, i + 400).forEach(s => {
+      const adm = String(s.adm).trim().toUpperCase();
+      batch.set(doc(db, "schools", schoolId, "students", adm.replaceAll("/", "_")), {
+        name: String(s.name).trim(), adm, cls: String(s.cls || ""), gender: String(s.gender || ""),
+        dob: String(s.dob || ""), parent: String(s.parent || ""), relation: String(s.relation || "Guardian"),
+        phone: String(s.phone || ""), status: s.status || "Active", createdAt: serverTimestamp(), createdBy: user.uid
+      });
+    });
+    await batch.commit();
+  }
+}
+
+// School administrator creates a login (teacher, accountant or parent) for their own school.
+async function createUserAccount(schoolId, u) {
+  const admin = auth.currentUser;
+  if (!admin || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  const email = String(u.email).trim().toLowerCase();
+  const cred = await createUserWithEmailAndPassword(authProv, email, u.password);
+  const uid = cred.user.uid;
+  try {
+    await setDoc(doc(db, "users", uid), {
+      role: u.role, schoolId, name: u.name, email,
+      classes: u.classes || [], children: u.children || [],
+      mustChangePassword: true, createdAt: serverTimestamp(), createdBy: admin.uid
+    });
+  } catch (e) {
+    try { await deleteUser(authProv.currentUser); } catch (_e) {}   // do not leave a login without a profile
+    throw e;
+  }
+  await signOut(authProv);
+  return uid;
+}
+
+async function listSchoolUsers(schoolId) {
+  const snap = await getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId)));
+  return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, createUserAccount, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };

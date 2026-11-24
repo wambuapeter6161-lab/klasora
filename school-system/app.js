@@ -157,6 +157,35 @@ function getModule(page){
 function showLoginMsg(text,type){const el=$('loginMsg');if(!text){el.classList.add('hidden');return}el.textContent=text;el.className='login-msg'+(type==='info'?' info':'');}
 function getLock(){try{return JSON.parse(store.get(LOCK_KEY))||{fails:0,until:0}}catch(e){return{fails:0,until:0}}}
 $('pwToggle').onclick=()=>{const p=$('loginPass'),show=p.type==='password';p.type=show?'text':'password';$('pwToggle').textContent=show?'Hide':'Show';};
+/* ---------- Students: saved to the school's Firestore records ---------- */
+async function saveStudentsRemote(list){
+ if(!list.length||!currentUser)return;
+ try{await KlasoraFirebase.saveStudents(currentUser.schoolId,list);}
+ catch(e){
+  EXTRA=EXTRA.filter(x=>!list.includes(x));rebuildStudents();try{rerenderPage()}catch(_e){}
+  toast(e.code==='permission-denied'?'You do not have permission to add students.':'Could not save to the school database. Check your internet and try again.');
+ }
+}
+async function loadStudentsRemote(r){
+ try{
+  const list=await KlasoraFirebase.loadStudents(r);
+  EXTRA=list.map(x=>({name:x.name,adm:x.adm,cls:x.cls,gender:x.gender,dob:x.dob||'',parent:x.parent||'',relation:x.relation||'Guardian',phone:x.phone||'',status:x.status||'Active',date:''}));
+ }catch(e){EXTRA=[];setTimeout(()=>toast('Could not load student records ('+(e.code||'error')+').'),700);}
+ rebuildStudents();
+}
+
+function fbUserToLocal(p,schoolId){
+ const titles={admin:'School Administrator',teacher:'Teacher',accountant:'School Accountant',parent:'Parent / Guardian'};
+ return{id:'fb_'+p.uid,uid:p.uid,username:p.email,email:p.email,name:p.name||p.email,initials:schoolInitials(p.name||p.email),role:p.role,title:p.title||titles[p.role]||'',status:'Active',schoolId,classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',mustChange:p.mustChangePassword===true};
+}
+async function loadUsersRemote(r){
+ USERS.length=0;
+ if(r.profile.role!=='admin'){refreshUsersModule();return}
+ try{(await KlasoraFirebase.listSchoolUsers(r.schoolId)).forEach(p=>{if(ROLES[p.role])USERS.push(fbUserToLocal(p,r.schoolId));});}
+ catch(e){setTimeout(()=>toast('Could not load staff accounts ('+(e.code||'error')+').'),900);}
+ refreshUsersModule();
+}
+
 /* ---------- Sign in (Firebase Authentication) ---------- */
 function userFromFirebase(r){
  const p=r.profile,name=p.name||r.user.email;
@@ -166,8 +195,9 @@ function userFromFirebase(r){
   schoolId:r.schoolId,schoolCode:r.school.code||r.schoolId,schoolName:r.school.name,poBox:r.school.poBox||'',
   classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',mustChange:p.mustChangePassword===true};
 }
-function beginFirebaseSession(r,fresh){
+async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
+ await loadStudentsRemote(r);await loadUsersRemote(r);
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -182,7 +212,7 @@ $('loginForm').addEventListener('submit',async e=>{
  try{
   const r=await KlasoraFirebase.signIn(email,pass,code);
   store.del(LOCK_KEY);
-  beginFirebaseSession(r,true);
+  await beginFirebaseSession(r,true);
  }catch(err){
   const bad=['auth/invalid-credential','auth/wrong-password','auth/user-not-found','auth/invalid-email'].includes(err.code);
   if(bad){
@@ -208,7 +238,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -220,7 +250,7 @@ async function restoreSession(){
   if(!window.KlasoraFirebase)return;
   const r=await KlasoraFirebase.restore();
   if(!r)return;
-  if(sv&&sv.id==='fb_'+r.user.uid&&Date.now()-sv.ts<IDLE_MINUTES*60000){beginFirebaseSession(r,false);lastActive=sv.ts;}
+  if(sv&&sv.id==='fb_'+r.user.uid&&Date.now()-sv.ts<IDLE_MINUTES*60000){await beginFirebaseSession(r,false);lastActive=sv.ts;}
   else{store.del(SESSION_KEY);await KlasoraFirebase.signOut();if(sv)showLoginMsg(`Your session expired after ${IDLE_MINUTES} minutes of inactivity. Please sign in again.`,'info');}
  }catch(e){store.del(SESSION_KEY);}
 }
@@ -378,9 +408,25 @@ function applySchool(){
 let pendingLogo='';
 function renderAccountantManager(){
  const box=$('accountantPanel');if(!box)return;
- const list=USERS.filter(u=>u.role==='accountant');
- box.innerHTML=`<div class="panel-heading"><div><h3>Staff Account Access</h3><p>Add an accountant for this school. They must replace the temporary password on first login.</p></div></div><div class="form-fields"><div class="field"><label>Accountant full name</label><input id="newAccName" placeholder="e.g. Mary Wanjiku"></div><div class="field"><label>Accountant email</label><input id="newAccEmail" type="email" placeholder="accounts@school.ac.ke"></div><div class="field"><label>Temporary password</label><input id="newAccTemp" type="text" placeholder="Create a temporary password"></div></div><div class="modal-actions"><button type="button" class="btn btn-primary" id="createAccountant">＋ Add Accountant</button></div><div class="streams-box"><h4>Accountants in this school</h4>${list.length?list.map(u=>`<div class="access-row"><span>${escH(u.name)}<small style="display:block;color:#8290a4">${escH(u.email||u.username)}</small></span><span>${u.mustChange?'Temporary password':'Active'}</span></div>`).join(''):'<p class="su-hint">No accountant accounts have been added yet.</p>'}</div>`;
- $('createAccountant').onclick=()=>{const name=$('newAccName').value.trim(),email=$('newAccEmail').value.trim().toLowerCase(),temp=$('newAccTemp').value;if(wordCount(name)<2||!/^\S+@\S+\.\S+$/.test(email)||temp.length<8){toast('Enter the full name, valid email and a temporary password of at least 8 characters.');return}if(USERS.some(u=>u.email===email||u.username.toLowerCase()===email)){toast('An account already uses that email.');return}const u={id:'acc_'+Date.now().toString(36),username:email,email,name,initials:schoolInitials(name),role:'accountant',title:'School Accountant',status:'Active',schoolCode:(getSchool().schoolCode||'GFA001'),mustChange:true};USERS.push(u);setCreds(u,temp,true);const saved=USERS.filter(x=>x.role==='accountant').map(x=>{const c={...x};delete c.salt;delete c.passHash;delete c.mustChange;delete c.pwReset;return c});localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(saved));refreshUsersModule();renderAccountantManager();toast('Accountant added. Share the temporary password securely.');};
+ const list=USERS.filter(u=>u.role==='accountant'||u.role==='teacher');
+ const clsOpts=classKeys().map(c=>`<option>${escH(c)}</option>`).join('');
+ box.innerHTML=`<div class="panel-heading"><div><h3>Staff Account Access</h3><p>Create sign-in accounts for teachers and accountants. They must replace the temporary password on first login.</p></div></div><div class="form-fields"><div class="field"><label>Account type</label><select id="newAccRole"><option value="accountant">Accountant</option><option value="teacher">Teacher</option></select></div><div class="field hidden" id="newAccClassWrap"><label>Class taught</label><select id="newAccClass">${clsOpts}</select></div><div class="field"><label>Full name</label><input id="newAccName" placeholder="e.g. Mary Wanjiku"></div><div class="field"><label>Email</label><input id="newAccEmail" type="email" placeholder="name@example.com"></div><div class="field"><label>Temporary password</label><input id="newAccTemp" type="text" placeholder="At least 8 characters"></div></div><div class="modal-actions"><button type="button" class="btn btn-primary" id="createAccountant">＋ Create Account</button></div><div class="streams-box"><h4>Staff accounts in this school</h4>${list.length?list.map(u=>`<div class="access-row"><span>${escH(u.name)}<small style="display:block;color:#8290a4">${escH(u.email||u.username)} · ${u.role==='teacher'?'Teacher'+(u.className?', '+escH(u.className):''):'Accountant'}</small></span><span>${u.mustChange?'Temporary password':'Active'}</span></div>`).join(''):'<p class="su-hint">No staff accounts have been created yet.</p>'}</div>`;
+ const roleSel=$('newAccRole');roleSel.onchange=()=>$('newAccClassWrap').classList.toggle('hidden',roleSel.value!=='teacher');
+ $('createAccountant').onclick=async()=>{
+  const role=roleSel.value,name=$('newAccName').value.trim().replace(/[<>]/g,''),email=$('newAccEmail').value.trim().toLowerCase(),temp=$('newAccTemp').value,cls=role==='teacher'?$('newAccClass').value:'';
+  if(wordCount(name)<2||!/^\S+@\S+\.\S+$/.test(email)||temp.length<8){toast('Enter the full name, a valid email and a temporary password of at least 8 characters.');return}
+  if(role==='teacher'&&!cls){toast('Choose the class this teacher teaches.');return}
+  if(USERS.some(u=>String(u.email||'').toLowerCase()===email)){toast('An account already uses that email.');return}
+  const btn=$('createAccountant');btn.disabled=true;
+  try{
+   const uid=await KlasoraFirebase.createUserAccount(currentUser.schoolId,{email,password:temp,name,role,classes:cls?[cls]:[]});
+   USERS.push(fbUserToLocal({uid,role,name,email,classes:cls?[cls]:[],children:[],mustChangePassword:true},currentUser.schoolId));
+   refreshUsersModule();renderAccountantManager();toast((role==='teacher'?'Teacher':'Accountant')+' account created. Share the temporary password securely.');
+  }catch(e){
+   toast(e.code==='auth/email-already-in-use'?'That email already has an account.':e.code==='permission-denied'?'You do not have permission to create accounts.':e.code==='auth/weak-password'?'Choose a stronger temporary password.':'Could not create the account. Check your internet and try again.');
+   btn.disabled=false;
+  }
+ };
 }
 function renderSettings(){
  const role=currentUser?currentUser.role:'admin';$('schoolPanel').classList.toggle('hidden',role!=='admin');$('feeSetupPanel').classList.toggle('hidden',role!=='accountant');$('accountantPanel').classList.toggle('hidden',role!=='admin');if(role==='accountant')renderFeeSetup();if(role==='admin')renderAccountantManager();
@@ -510,9 +556,9 @@ const MSD={
   ()=>({sub:'Running out soon',sections:[['LOW STOCK',modules.inventory.rows.filter(r=>r[4]==='Low Stock').map(r=>[r[0],r[3]+' left'])]]}),
   ()=>({sub:'Requests waiting for approval',sections:[['REQUESTS',[['Science kit','Grade 5'],['Laptop charger','ICT lab'],['Desks × 10','Grade 2'],['Projector bulb','School hall'],['Sports bibs','PE department']]]]})],
  communication:[
-  ()=>({sub:'Notices sent or planned',sections:[['BY STATUS',[['Published','12'],['Scheduled','4'],['Drafts','2']]]]}),
-  ()=>({sub:'Next on the calendar',sections:[['EVENTS',[['End of Term Exams','20 Nov 2026'],["Parents' Meeting",'25 Nov 2026'],['Closing Day','02 Dec 2026']]]]}),
-  ()=>({sub:'Messages with parents and staff',sections:[['BY GROUP',[['Parents','16'],['Staff','8']]],['INBOX',[['Unread','5']]]]})],
+  ()=>({sub:'Notices sent or planned',sections:[['BY STATUS',[['Published','0'],['Scheduled','0'],['Drafts','0']]]]}),
+  ()=>({sub:'Next on the calendar',sections:[['EVENTS',[['None yet','-']]]]}),
+  ()=>({sub:'Messages with parents and staff',sections:[['BY GROUP',[['Parents','0'],['Staff','0']]],['INBOX',[['Unread','0']]]]})],
  reports:[
   ()=>({sub:'Reports you can generate',sections:[['BY CATEGORY',[['Students','4'],['Finance','4'],['Academic','4'],['Operations','4']]]]}),
   ()=>({sub:'November 2026',sections:[['FORMAT',[['PDF','30'],['Excel','12']]]]}),
@@ -530,7 +576,6 @@ modules.fees.rows.push(['Grace Kariuki','INV-2023-0140','KSh 20,000','KSh 20,000
 modules.parents={title:'Parents & Guardians',subtitle:'Parents and guardians linked to learners, with contact numbers.',stats:[['Guardians','0'],['Portal Linked','0'],['Not Registered','0']],heads:['PARENT / GUARDIAN','PHONE','CHILDREN','CLASSES','PORTAL'],rows:[]};
 THEME.parents=['pink','teal','amber'];MS_ICONS.parents=['👪','🔗','⏳'];PAGE_NAMES.parents='Parents';
 ROLES.accountant.pages.push('parents');
-Object.assign(USERS.find(u=>u.id==='u4'),{title:'Parent / Guardian',linkPhone:'0711000004',phone:'0711 000 004'});
 
 const normPhone=s=>{let d=String(s||'').replace(/\D/g,'');if(d.startsWith('254'))d='0'+d.slice(3);else if(d.length===9&&/^[17]/.test(d))d='0'+d;return /^0[17]\d{8}$/.test(d)?d:'';};
 const fmtPhone=p=>/^0\d{9}$/.test(p)?`${p.slice(0,4)} ${p.slice(4,7)} ${p.slice(7)}`:(p||'—');
@@ -546,7 +591,7 @@ const classKeys=()=>CLASS_LIST.flatMap(g=>STREAMS.length?STREAMS.map(x=>g+' '+x)
 const normKey=c=>{c=String(c||'').trim();if(!c)return c;const g=gradeOf(c);if(!CLASS_LIST.includes(g))return c;if(!STREAMS.length)return g;const rest=c.slice(g.length).trim(),hit=STREAMS.find(x=>x.toLowerCase()===rest.toLowerCase());return g+' '+(hit||STREAMS[0]);};
 
 /* guardians on file for the original sample learners */
-const BASE_STUDENTS=modules.students.rows.slice();
+const BASE_STUDENTS=[];   // no built-in sample learners
 const PARENT_FIRST=[['Peter','Father'],['Mary','Mother'],['John','Father'],['Grace','Mother'],['Joseph','Father'],['Lucy','Mother'],['Daniel','Father'],['Faith','Mother'],['Samuel','Father'],['Ann','Mother'],['David','Father'],['Ruth','Mother']];
 const GUARDIAN_SEED={};
 BASE_STUDENTS.forEach((r,i)=>{const last=r[0].split(' ').slice(-1)[0];
@@ -557,7 +602,7 @@ BASE_STUDENTS.forEach((r,i)=>{const last=r[0].split(' ').slice(-1)[0];
 const NEWSTU_KEY='edutrack_new_students',PACC_KEY='edutrack_parent_accounts';
 let HIDE={};try{HIDE=JSON.parse(store.get('edutrack_flags'))||{}}catch(e){HIDE={}}
 const PROMO_KEY='edutrack_promotions';let PROMO={log:[],overrides:{},done:{}};try{const p=JSON.parse(store.get(PROMO_KEY));if(p)PROMO={log:p.log||[],overrides:p.overrides||{},done:p.done||{}}}catch(e){}
-let EXTRA=[];try{EXTRA=JSON.parse(store.get(NEWSTU_KEY))||[]}catch(e){EXTRA=[]}
+let EXTRA=[];   // learners of the signed-in school, loaded from Firestore after sign-in
 function rebuildStudents(){const reg=EXTRA.filter(x=>!x.imp).reverse(),imp=EXTRA.filter(x=>x.imp);modules.students.rows=[...reg,...imp].map(x=>[x.name,x.adm,x.cls,x.gender,x.status||'Active']).concat(HIDE.students?[]:BASE_STUDENTS);modules.students.rows=modules.students.rows.map(r=>{const o=PROMO.overrides[r[1]];return o?[r[0],r[1],o.cls||r[2],r[3],o.status||r[4]]:r;}).map(r=>r.map((v,i)=>i===2?normKey(v):v));}
 rebuildStudents();
 try{(JSON.parse(store.get(PACC_KEY))||[]).forEach(a=>{if(!USERS.find(u=>u.id===a.id))USERS.push(a)})}catch(e){}
@@ -568,15 +613,15 @@ const accountFor=phone=>USERS.find(u=>u.role==='parent'&&u.linkPhone===phone);
 const childrenOf=u=>allStudents().filter(s=>s.gphone===u.linkPhone);
 
 function stuNums(){
- if(isLive('students')){const all=allStudents(),b={lower:0,upper:0,junior:0},nw={lower:0,upper:0,junior:0};let f=0,m=0;all.forEach(s=>{b[LEVEL_OF(s.cls)]++;if(s.gender==='Female')f++;else if(s.gender==='Male')m++;});EXTRA.forEach(x=>nw[LEVEL_OF(x.cls)]++);return{total:all.length,newAdm:EXTRA.length,active:all.filter(s=>s.status==='Active').length,b,nw,female:f,male:m,n:EXTRA.length};}const b={lower:156,upper:184,junior:88},nw={lower:14,upper:12,junior:6};let f=0,m=0;
+ if(isLive('students')){const all=allStudents(),b={lower:0,upper:0,junior:0},nw={lower:0,upper:0,junior:0};let f=0,m=0;all.forEach(s=>{b[LEVEL_OF(s.cls)]++;if(s.gender==='Female')f++;else if(s.gender==='Male')m++;});EXTRA.forEach(x=>nw[LEVEL_OF(x.cls)]++);return{total:all.length,newAdm:EXTRA.length,active:all.filter(s=>s.status==='Active').length,b,nw,female:f,male:m,n:EXTRA.length};}const b={lower:0,upper:0,junior:0},nw={lower:0,upper:0,junior:0};let f=0,m=0;
  EXTRA.forEach(x=>{b[LEVEL_OF(x.cls)]++;nw[LEVEL_OF(x.cls)]++;x.gender==='Female'?f++:m++;});const n=EXTRA.length;
- return{total:428+n,newAdm:32+n,active:416+n,b,nw,female:219+f,male:209+m,n};}
+ return{total:n,newAdm:n,active:n,b,nw,female:f,male:m,n};}
 
 /* ----- per-child records for the parent portal ----- */
 const hashOf=s=>{let h=7;for(const c of String(s))h=(h*31+c.charCodeAt(0))>>>0;return h;};
 const LEVEL_FULL=sc=>LEVEL_NAME[levelCode(sc)];
 const LEVEL_SHORT=sc=>levelCode(sc);
-const FEE_BY_CLASS=c0=>{const c=gradeOf(c0);return c.startsWith('PP')?12000:/Grade [123]$/.test(c)?15000:c==='Grade 4'?18000:/Grade [56]$/.test(c)?20000:22000;};
+const FEE_BY_CLASS=c0=>{const c=gradeOf(c0);return 0;};
 const numOf=s=>parseInt(String(s).replace(/\D/g,''),10)||0;
 const isSample=s=>BASE_STUDENTS.some(b=>b[1]===s.adm);
 function childRecordsBase(s){
@@ -685,8 +730,8 @@ function registerStudent(d){
  if(!phone)return{error:'Enter a valid parent phone number, for example 0712 345 678.'};
  if(allStudents().some(s=>normName(s.name)===normName(d.name)&&s.cls===d.cls&&s.gphone===phone))return{error:'This learner is already registered with that parent.'};
  const rec={name:d.name.replace(/[<>]/g,'').trim().replace(/\s+/g,' '),adm:adm,cls:d.cls,gender:d.gender,dob:d.dob||'',parent:d.parent.replace(/[<>]/g,'').trim().replace(/\s+/g,' '),relation:d.relation||'Guardian',phone,date:new Date().toISOString().slice(0,10)};
- EXTRA.push(rec);const ok=store.set(NEWSTU_KEY,JSON.stringify(EXTRA));rebuildStudents();
- return{student:rec,saved:ok,hasAccount:!!accountFor(phone),siblings:allStudents().filter(s=>s.gphone===phone&&s.adm!==rec.adm).map(s=>s.name)};
+ EXTRA.push(rec);rebuildStudents();saveStudentsRemote([rec]);
+ return{student:rec,saved:true,hasAccount:!!accountFor(phone),siblings:allStudents().filter(s=>s.gphone===phone&&s.adm!==rec.adm).map(s=>s.name)};
 }
 function openStudentForm(){
  $('stClass').innerHTML='<option value="">Select class</option>'+classKeys().map(c=>`<option>${c}</option>`).join('');
@@ -1186,7 +1231,6 @@ try{NOTE_SEEN=JSON.parse(store.get(SEEN_KEY))||{}}catch(e){NOTE_SEEN={}}
 const saveTeachers=()=>store.set(TEACH_KEY,JSON.stringify(TEACHERS)),saveReplaced=()=>store.set(REPL_KEY,JSON.stringify(REPLACED)),savePromo=()=>store.set(PROMO_KEY,JSON.stringify(PROMO));
 const normLogin=s=>String(s||'').toLowerCase().replace(/[\s.]+/g,'');
 function teacherUser(t){return{id:t.id,username:t.username,name:t.name||t.username,initials:schoolInitials(t.name||t.username),role:'teacher',title:'Class Teacher, '+t.className,status:'Active',className:t.className,pending:!!t.pending,created:t.created,schoolCode:t.schoolCode||'GFA001'};}
-Object.assign(USERS.find(u=>u.id==='u2'),{className:'Grade 4',title:'Class Teacher, Grade 4'});
 TEACHERS.forEach(t=>{if(!USERS.find(u=>u.id===t.id))USERS.push(teacherUser(t));});
 applyCreds();
 USERS.forEach(u=>{if(REPLACED[u.id])u.status='Replaced';});
@@ -1621,7 +1665,7 @@ function applyDataset(ds,recs,mode){
   recs.forEach(r=>{const key=normName(r.name)+'|'+r.cls+'|'+r.phone;if((r.adm&&seenAdm.has(r.adm))||seenKey.has(key)){res.dups++;return}
    const x={...r,date:new Date().toISOString().slice(0,10)};if(!x.adm){max++;x.adm='GFA-'+y+'-'+String(max).padStart(4,'0');}seenAdm.add(x.adm);seenKey.add(key);out.push(x);});
   if(mode==='replace'){HIDE.students=true;EXTRA=out;}else EXTRA=[...EXTRA,...out];res.added=out.length;
-  store.set(NEWSTU_KEY,JSON.stringify(EXTRA));rebuildStudents();
+  rebuildStudents();saveStudentsRemote(out);
  }else{
   const ex=mode==='replace'?[]:modules[ds].rows,seen=new Set(ex.map(r=>String(r[1]).toLowerCase())),out=[];let n=ex.length;
   recs.forEach(r=>{const row=r.slice();
@@ -1980,11 +2024,7 @@ document.addEventListener('click',e=>{
 });
 
 /* ----- Announcements ----- */
-const SAMPLE_ANN=[
- {title:'End of Term Exams',aud:'Parents',date:'20 Nov 2026',by:'Administrator',st:'Published',msg:'End of term exams begin on 20 Nov 2026. Please make sure your child attends every day and arrives on time.'},
- {title:'Parents Meeting',aud:'Parents',date:'25 Nov 2026',by:'Headteacher',st:'Scheduled',msg:'Parents are invited to the school hall on 25 Nov 2026 at 10:00 AM to talk about your child’s progress.'},
- {title:'Closing Day',aud:'Whole School',date:'02 Dec 2026',by:'Administrator',st:'Scheduled',msg:'The school closes for the holiday on 02 Dec 2026 at 9:00 AM. All staff attend the main assembly.'}
-];
+const SAMPLE_ANN=[];
 function buildAnnRows(){
  const mk=o=>{const r=[escH(o.title),o.aud,o.date,escH(o.by),o.st];r.raw=[o.title,o.aud,o.date,o.by,o.st];r.meta={t:'ann',...o};return r;};
  return[...ANN.slice().reverse().map(a=>mk({title:a.title,aud:a.audience,date:annDate(a.created),by:a.by,msg:a.message,st:'Published',id:a.id})),...SAMPLE_ANN.map(mk)];
@@ -2038,6 +2078,14 @@ $('pdModal').addEventListener('click',e=>{
  toast('Announcement sent to '+(aud==='Whole School'?'the whole school (teachers and accountant)':aud.toLowerCase())+'.'+(ok?'':' Saved for this session only.'));
 });
 
+/* ---------- Every school starts with empty records (no sample data) ---------- */
+(function clearSampleData(){
+ const zero=v=>{v=String(v);return /^KSh/i.test(v)?'KSh 0':/%$/.test(v)?'0%':/^[\d,.]+$/.test(v)?'0':v;};
+ Object.keys(modules).forEach(k=>{
+  if(k==='settings'||k==='reports')return;
+  const m=modules[k];if(m.rows)m.rows.length=0;if(m.stats)m.stats.forEach(x=>{x[1]=zero(x[1]);});
+ });
+})();
 restoreSession();
 
 
