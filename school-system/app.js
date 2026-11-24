@@ -34,13 +34,7 @@ const ROLES={
   dash:{title:'Parent Portal',sub:"Follow your child's attendance, results and fees."}}
 };
 const ACCOUNTS_KEY='klasora_staff_accounts';
-const USERS=[
- {id:'u1',username:'admin',password:'Admin@123',name:'James Mwangi',initials:'JM',role:'admin',title:'School Administrator',status:'Active'},
- {id:'u2',username:'teacher',password:'Teacher@123',name:'Jane Achieng',initials:'JA',role:'teacher',title:'Class Teacher, Grade 4 North',status:'Active'},
- {id:'u3',username:'accountant',password:'Accounts@123',name:'David Kamau',initials:'DK',role:'accountant',title:'School Accountant',status:'Active'},
- {id:'u4',username:'parent',password:'Parent@123',name:'Esther Kariuki',initials:'EK',role:'parent',title:'Parent of Michael Kariuki',child:'Michael Kariuki',childClass:'Grade 2',status:'Active'}
- ];
-try{const extra=JSON.parse(localStorage.getItem(ACCOUNTS_KEY)||'[]');extra.forEach(a=>{if(a&&a.id&&!USERS.some(u=>u.id===a.id))USERS.push(a);});}catch(e){}
+const USERS=[];   // real accounts now come from Firebase Authentication
 modules.users={title:'Users & Roles',subtitle:'Manage who can sign in and what each role can access.',
  stats:[['User Accounts',String(USERS.length)],['Roles','4'],['Signed In Now','1']],
  heads:['USER','USERNAME','ROLE','ACCESS','STATUS'],
@@ -162,110 +156,51 @@ function getModule(page){
 /* ---------- Login screen ---------- */
 function showLoginMsg(text,type){const el=$('loginMsg');if(!text){el.classList.add('hidden');return}el.textContent=text;el.className='login-msg'+(type==='info'?' info':'');}
 function getLock(){try{return JSON.parse(store.get(LOCK_KEY))||{fails:0,until:0}}catch(e){return{fails:0,until:0}}}
-$('demoChips').innerHTML=USERS.map(u=>`<button type="button" class="demo-chip" data-user="${u.username}"><strong>${ROLES[u.role].label}</strong><small>${u.username} · ${u.password}</small></button>`).join('');
-$('demoChips').addEventListener('click',e=>{const b=e.target.closest('.demo-chip');if(!b)return;const u=USERS.find(x=>x.username===b.dataset.user);$('loginUser').value=u.username;$('loginPass').value=u.password;$('loginSchoolName').value='Greenfield Academy';$('loginSchoolCode').value='GFA001';showLoginMsg('');});
 $('pwToggle').onclick=()=>{const p=$('loginPass'),show=p.type==='password';p.type=show?'text':'password';$('pwToggle').textContent=show?'Hide':'Show';};
-/* ---------- Central school lookup (Firebase) ---------- */
-const FB={key:'AIzaSyBJ26ARylloIA66941AsSkqIt1HCDjlmps',project:'klasora-2fc4a'};
-let fbToken='';
-const fsVal=v=>v==null?null:('stringValue' in v?v.stringValue:('booleanValue' in v?v.booleanValue:('integerValue' in v?Number(v.integerValue):null)));
-const fsDoc=j=>{const o={};Object.entries((j&&j.fields)||{}).forEach(([k,v])=>o[k]=fsVal(v));return o};
-const FS='https://firestore.googleapis.com/v1/projects/'+FB.project+'/databases/(default)/documents/';
-async function fsGet(path,token){const r=await fetch(FS+path,{headers:token?{Authorization:'Bearer '+token}:{}});if(r.status===404)return{missing:true};if(!r.ok)return{denied:true};return fsDoc(await r.json())}
-async function fbSignIn(email,pass){try{const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+FB.key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pass,returnSecureToken:true})});return r.ok?await r.json():null}catch(e){return null}}
-async function fbSetPassword(token,pw){try{await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update?key='+FB.key,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:token,password:pw,returnSecureToken:false})})}catch(e){}}
-async function fbMarkChanged(schoolId){try{await fetch(FS+'schools/'+schoolId+'?updateMask.fieldPaths=mustChangePassword',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+fbToken},body:JSON.stringify({fields:{mustChangePassword:{booleanValue:false}}})})}catch(e){}}
+/* ---------- Sign in (Firebase Authentication) ---------- */
+function userFromFirebase(r){
+ const p=r.profile,name=p.name||r.user.email;
+ if(!ROLES[p.role])throw new Error('This account has no valid role. Contact your school administrator.');
+ const titles={admin:'School Administrator',teacher:'Teacher',accountant:'School Accountant',parent:'Parent / Guardian'};
+ return{id:'fb_'+r.user.uid,uid:r.user.uid,username:r.user.email,email:r.user.email,name,initials:schoolInitials(name),role:p.role,title:p.title||titles[p.role],status:'Active',
+  schoolId:r.schoolId,schoolCode:r.school.code||r.schoolId,schoolName:r.school.name,poBox:r.school.poBox||'',
+  classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',mustChange:p.mustChangePassword===true};
+}
+function beginFirebaseSession(r,fresh){
+ const u=userFromFirebase(r);
+ store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
+ startSession(u,fresh);
+}
 $('loginForm').addEventListener('submit',async e=>{
  e.preventDefault();
  const lock=getLock(),now=Date.now();
  if(lock.until>now){showLoginMsg(`Too many failed attempts. Try again in ${Math.ceil((lock.until-now)/1000)} seconds.`);return}
- const name=$('loginUser').value.trim().toLowerCase(),email=($('loginEmail')?.value||'').trim().toLowerCase(),schoolName=($('loginSchoolName')?.value||'').trim().toLowerCase(),pass=$('loginPass').value;
- if(!name||!pass){showLoginMsg('Enter your username and password.');return}
- const schoolCode=($('loginSchoolCode')?.value||'').trim().toUpperCase();
- if(!schoolCode||!schoolName){showLoginMsg('Enter your school name and school code.');return;}
- let u=null;
- // School administrator sign-in now uses Firebase B (klasora-school). GFA001 stays the offline demo school.
- let fbB=false;
- if(schoolCode!=='GFA001'){
-  fbB=true;
-  const failB=msg=>{lock.fails=(lock.fails||0)+1;if(lock.fails>=MAX_FAILS){lock.until=now+LOCK_SECONDS*1000;lock.fails=0;store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Too many failed attempts. Sign-in is locked for ${LOCK_SECONDS} seconds.`);}else{store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(msg);}$('loginPass').value='';};
-  if(!window.KlasoraFirebase){showLoginMsg('Secure sign-in is still loading. Wait a moment and try again.');return;}
-  if(!email){showLoginMsg('Enter the registered email for this school account.');return;}
-  let r=null;
-  try{r=await KlasoraFirebase.signInSchoolAdmin({email,password:pass,schoolCode,schoolName:$('loginSchoolName').value,adminName:$('loginUser').value});}
-  catch(err){
-   const c=String(err&&err.code||'');
-   if(c==='auth/network-request-failed'){showLoginMsg('No internet connection. Check your connection and try again.');return;}
-   if(c==='auth/too-many-requests'){showLoginMsg('Too many attempts. Wait a few minutes and try again.');return;}
-   failB(c.startsWith('auth/')?'Incorrect email or password.':String(err&&err.message||'Sign-in failed.'));return;
-  }
-  const d=r.school,adminName=String(d.adminName||name);
-  u=USERS.find(x=>x.id==='central_'+r.schoolId);
-  if(!u){u={id:'central_'+r.schoolId,username:adminName,name:adminName,email,initials:schoolInitials(adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:d.code||schoolCode,schoolName:d.name,poBox:d.poBox||''};USERS.push(u);}
-  const sc=CREDS[u.id];if(sc){u.salt=sc.salt;u.passHash=sc.hash;u.mustChange=!!sc.must;}
-  if(!passOk(u,pass))setCreds(u,pass,d.mustChangePassword===true);
-  u.mustChange=d.mustChangePassword===true;
-  store.set(SCHOOL_KEY,JSON.stringify({name:d.name,type:'School',motto:'',logo:'',phones:[],poBox:d.poBox||'',schoolCode:d.code||schoolCode}));applySchool();
- }
- // Legacy lookup (Firebase A / local registry) is used only for the offline demo school.
- if(schoolCode&&!fbB){
-  let registry=[];try{registry=JSON.parse(localStorage.getItem('klasora_central_schools')||'[]')}catch(_e){}
-  let school=null,meta=null;
-  try{meta=await fsGet('schoolCodes/'+encodeURIComponent(schoolCode))}catch(_e){meta=null}
-  if(meta&&!meta.missing&&!meta.denied){
-   if(!(meta.active===true||meta.isActive===true)){showLoginMsg('This school is not active. Please contact the platform administrator.');return;}
-   school={code:meta.code||schoolCode,id:meta.schoolId,name:meta.schoolName,adminUid:meta.adminUid,fb:true};
-  }else{
-   school=registry.find(x=>String(x.code||'').toUpperCase()===schoolCode&&x.status==='Active')||null;
-  }
-  if(!school){showLoginMsg('School code not found or school is not active. Check the code with your school.');return;}
-  if(school.fb&&email&&schoolName===String(school.name||'').trim().toLowerCase()){
-   const sess=await fbSignIn(email,pass);
-   if(sess&&sess.localId===school.adminUid){
-    const sd=await fsGet('schools/'+school.id,sess.idToken);
-    const d=(sd&&!sd.missing&&!sd.denied)?sd:{};
-    if((d.status&&d.status!=='Active')||d.subscriptionStatus==='Paused'){showLoginMsg('This school is not active. Please contact the platform administrator.');return;}
-    const adminName=String(d.adminName||name);
-    if(name===adminName.trim().toLowerCase()){
-     u=USERS.find(x=>x.id==='central_'+school.id);
-     if(!u){u={id:'central_'+school.id,username:adminName,name:adminName,email,initials:schoolInitials(adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:school.code,schoolName:school.name,poBox:d.poBox||''};USERS.push(u);}
-     const sc=CREDS[u.id];if(sc){u.salt=sc.salt;u.passHash=sc.hash;u.mustChange=!!sc.must;}
-     if(!passOk(u,pass))setCreds(u,pass,d.mustChangePassword===true);
-     fbToken=sess.idToken;
-     store.set(SCHOOL_KEY,JSON.stringify({name:school.name,type:'School',motto:'',logo:'',phones:[],poBox:d.poBox||'',schoolCode:school.code}));applySchool();
-     try{registry=registry.filter(x=>x.id!==school.id);registry.push({id:school.id,code:school.code,name:school.name,status:'Active',activated:true,adminName,adminEmail:email,poBox:d.poBox||''});localStorage.setItem('klasora_central_schools',JSON.stringify(registry))}catch(_e){}
-    }
-   }
-  }
-  const identity=String(name||'').trim().toLowerCase();
-  if(!school.fb&&identity===String(school.adminName||'').trim().toLowerCase()&&email===String(school.adminEmail||'').trim().toLowerCase()&&schoolName===String(school.name||'').trim().toLowerCase()){
-   u=USERS.find(x=>x.id==='central_'+school.id);
-   if(!u){u={id:'central_'+school.id,username:school.adminName,name:school.adminName,email:school.adminEmail,initials:schoolInitials(school.adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:school.code,schoolName:school.name,poBox:school.poBox};USERS.push(u);}
-   const savedCred=CREDS[u.id];if(savedCred){u.salt=savedCred.salt;u.passHash=savedCred.hash;u.mustChange=!!savedCred.must;}
-   if(!school.activated&&pass===school.tempPassword){setCreds(u,pass,true);school.activated=true;delete school.tempPassword;localStorage.setItem('klasora_central_schools',JSON.stringify(registry));}
-   if(!passOk(u,pass))u=null;
-   else{store.set(SCHOOL_KEY,JSON.stringify({name:school.name,type:'School',motto:'',logo:'',phones:[],poBox:school.poBox,schoolCode:school.code}));applySchool();}
-  }
- }
- if(!u)u=findLogin(email||name,pass);
- if(u&&schoolCode&&String(u.schoolCode||'GFA001').toUpperCase()!==schoolCode){showLoginMsg('This account does not belong to the school code entered.');return;}
- if(u&&schoolName!==String(getSchool().name||'').trim().toLowerCase()){showLoginMsg('The school name does not match this school code.');return;}
- if(u&&u.status==='Replaced'){showLoginMsg('This account is no longer active. Please contact the school administrator.');return}
- if(u&&u.pending){showLoginMsg('Your class teacher account is not activated yet. Tap “New class teacher? Activate your account” below.');return}
- if(!u||u.status!=='Active'){
-  lock.fails=(lock.fails||0)+1;
-  if(lock.fails>=MAX_FAILS){lock.until=now+LOCK_SECONDS*1000;lock.fails=0;store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Too many failed attempts. Sign-in is locked for ${LOCK_SECONDS} seconds.`);}
-  else{store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Incorrect username or password. ${MAX_FAILS-lock.fails} attempt${MAX_FAILS-lock.fails===1?'':'s'} left.`);}
-  $('loginPass').value='';return;
- }
- store.del(LOCK_KEY);startSession(u,true);
+ const email=$('loginEmail').value.trim().toLowerCase(),pass=$('loginPass').value,code=($('loginSchoolCode').value||'').trim().toUpperCase();
+ if(!email||!pass){showLoginMsg('Enter your email and password.');return}
+ if(!window.KlasoraFirebase){showLoginMsg('Still connecting. Check your internet and try again.');return}
+ const btn=e.submitter;if(btn)btn.disabled=true;
+ try{
+  const r=await KlasoraFirebase.signIn(email,pass,code);
+  store.del(LOCK_KEY);
+  beginFirebaseSession(r,true);
+ }catch(err){
+  const bad=['auth/invalid-credential','auth/wrong-password','auth/user-not-found','auth/invalid-email'].includes(err.code);
+  if(bad){
+   lock.fails=(lock.fails||0)+1;
+   if(lock.fails>=MAX_FAILS){lock.until=now+LOCK_SECONDS*1000;lock.fails=0;store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Too many failed attempts. Sign-in is locked for ${LOCK_SECONDS} seconds.`);}
+   else{store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Incorrect email or password. ${MAX_FAILS-lock.fails} attempt${MAX_FAILS-lock.fails===1?'':'s'} left.`);}
+  }else if(err.code==='auth/network-request-failed')showLoginMsg('No internet connection. Try again.');
+  else if(err.code==='auth/too-many-requests')showLoginMsg('Too many attempts. Wait a few minutes and try again.');
+  else showLoginMsg(err.message||'Sign-in failed.');
+  $('loginPass').value='';
+ }finally{if(btn)btn.disabled=false}
 });
 
 /* ---------- Session ---------- */
 function startSession(u,fresh){
  currentUser=u;lastActive=Date.now();lastSaved=0;saveSession();
  if(u.role==='teacher'){TEACHER_CLASS=normKey(u.className||'Grade 4');subjGrade=gradeOf(TEACHER_CLASS);regClass=TEACHER_CLASS;exView='list';}
- showLoginMsg('');$('loginUser').value='';$('loginEmail').value='';$('loginSchoolName').value='';$('loginPass').value='';$('loginSchoolCode').value='';$('loginPass').type='password';$('pwToggle').textContent='Show';
+ showLoginMsg('');$('loginEmail').value='';$('loginPass').value='';$('loginSchoolCode').value='';$('loginPass').type='password';$('pwToggle').textContent='Show';
  $('loginScreen').classList.add('hidden');$('appShell').classList.remove('hidden');
  applyRole();showPage('dashboard');
  if(fresh)toast(`Signed in as ${u.name} (${ROLES[u.role].label})`);
@@ -273,17 +208,20 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
 }
-function restoreSession(){
+async function restoreSession(){
  try{
-  const s=JSON.parse(store.get(SESSION_KEY));if(!s)return;
-  const u=USERS.find(x=>x.id===s.id&&x.status==='Active');
-  if(u&&Date.now()-s.ts<IDLE_MINUTES*60000){startSession(u,false);lastActive=s.ts;}
-  else{store.del(SESSION_KEY);if(u)showLoginMsg(`Your session expired after ${IDLE_MINUTES} minutes of inactivity. Please sign in again.`,'info');}
+  const sv=JSON.parse(store.get(SESSION_KEY)||'null');
+  let tries=0;while(!window.KlasoraFirebase&&tries++<50)await new Promise(r=>setTimeout(r,100));
+  if(!window.KlasoraFirebase)return;
+  const r=await KlasoraFirebase.restore();
+  if(!r)return;
+  if(sv&&sv.id==='fb_'+r.user.uid&&Date.now()-sv.ts<IDLE_MINUTES*60000){beginFirebaseSession(r,false);lastActive=sv.ts;}
+  else{store.del(SESSION_KEY);await KlasoraFirebase.signOut();if(sv)showLoginMsg(`Your session expired after ${IDLE_MINUTES} minutes of inactivity. Please sign in again.`,'info');}
  }catch(e){store.del(SESSION_KEY);}
 }
 function touch(){if(!currentUser)return;lastActive=Date.now();if(lastActive-lastSaved>10000)saveSession();}
@@ -1194,31 +1132,27 @@ function openPwModal(forced){
  if(!currentUser)return;pwForced=!!forced;
  $('pwModal').innerHTML=`<div class="modal-head"><div><h3>${forced?'Set a new password':'Change password'}</h3><p>${forced?'You are using a temporary password or your child’s UPI number. Create a private password to continue.':'Choose a password you will remember.'}</p></div>${forced?'':'<button class="modal-close" data-pw="close">×</button>'}</div>
  ${forced?'':'<div class="field"><label>Current password</label><input id="pwCur" type="password" autocomplete="off"></div>'}
- <div class="field"><label>New password</label><input id="pwNew" type="password" placeholder="At least 6 characters" autocomplete="off"></div>
+ <div class="field"><label>New password</label><input id="pwNew" type="password" placeholder="At least 8 characters" autocomplete="off"></div>
  <div class="field"><label>Confirm new password</label><input id="pwNew2" type="password" autocomplete="off"></div>
  <div class="modal-actions">${forced?'<button type="button" class="btn btn-light" data-pw="signout">Sign out</button>':'<button type="button" class="btn btn-light" data-pw="close">Cancel</button>'}<button type="button" class="btn btn-primary" data-pw="save">Save password</button></div>`;
  $('pwBackdrop').classList.remove('hidden');}
 function closePw(){$('pwBackdrop').classList.add('hidden');}
-function changePassword(u,cur,n1,n2,forced,dry){
- if(!forced&&!passOk(u,cur))return'Your current password is not correct.';
- if(n1.length<6)return'Choose a password with at least 6 characters.';
+function validatePw(cur,n1,n2,forced){
+ if(!forced&&!cur)return'Enter your current password.';
+ if(n1.length<8)return'Choose a password with at least 8 characters.';
  if(n1!==n2)return'The two passwords do not match.';
- if(passOk(u,n1))return'Choose a password different from the current one.';
- if(dry)return'';
- setCreds(u,n1,false);if(String(u.id).startsWith('central_')&&fbToken){fbSetPassword(fbToken,n1);fbMarkChanged(String(u.id).slice(8));}return'';}
+ if(!forced&&n1===cur)return'Choose a password different from the current one.';
+ return'';}
 $('pwBackdrop').addEventListener('click',e=>{
  if(e.target.id==='pwBackdrop'&&!pwForced){closePw();return}
  const a=e.target.dataset&&e.target.dataset.pw;if(!a)return;
  if(a==='close')closePw();else if(a==='signout'){closePw();signOut('You have been signed out.');}
  else if(a==='save'){(async()=>{
-  const cu=currentUser,cur=pwForced?'':$('pwCur').value,n1=$('pwNew').value,n2=$('pwNew2').value,forced=pwForced;
-  const err=changePassword(cu,cur,n1,n2,forced,true);if(err){toast(err);return}
-  if(String(cu.id).startsWith('central_')&&window.KlasoraFirebase){
-   try{await KlasoraFirebase.completeFirstLoginPassword(n1,String(cu.id).slice(8));}
-   catch(e2){toast(String(e2&&e2.code||'')==='auth/requires-recent-login'?'For security, sign out, sign in again, then change your password.':String(e2&&e2.message||'Password could not be saved. Try again.'));return}
-  }
-  const err2=changePassword(cu,cur,n1,n2,forced);if(err2){toast(err2);return}
-  closePw();toast('Password saved.');})();}});
+  const cur=pwForced?'':$('pwCur').value,n1=$('pwNew').value,n2=$('pwNew2').value,err=validatePw(cur,n1,n2,pwForced);
+  if(err){toast(err);return}
+  try{await KlasoraFirebase.changePassword(cur,n1);currentUser.mustChange=false;closePw();toast('Password saved.');}
+  catch(ex){toast(['auth/wrong-password','auth/invalid-credential'].includes(ex.code)?'Your current password is not correct.':ex.code==='auth/requires-recent-login'?'Please sign in again, then change your password.':ex.code==='auth/weak-password'?'That password is too weak.':'Could not save the password. Try again.');}
+ })();}});
 $('pfChangePw').onclick=()=>{closeProfile();openPwModal(false);};
 
 /* ----- administrator: parent login details + reset ----- */
@@ -1320,7 +1254,7 @@ function renderClassTeachers(){
  $('classTeachersPage').innerHTML=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">CLASS TEACHERS</span><small>${act.length} active · ${old.length} replaced</small></div></div>
  <div class="ct-form"><h3>Add a class teacher</h3>
   <div class="field"><label>Teacher username</label><input id="ctUser" maxlength="40" placeholder="e.g. Mr. Thomas or Madam Jane" autocomplete="off"></div>
-  <div class="field"><label>Password</label><div class="pw-wrap"><input id="ctPass" type="text" maxlength="40" placeholder="At least 6 characters" autocomplete="off"><button type="button" class="pw-toggle" data-ct="gen" data-t="ctPass">Generate</button></div></div>
+  <div class="field"><label>Password</label><div class="pw-wrap"><input id="ctPass" type="text" maxlength="40" placeholder="At least 8 characters" autocomplete="off"><button type="button" class="pw-toggle" data-ct="gen" data-t="ctPass">Generate</button></div></div>
   <div class="field"><label>Class</label><select id="ctClass">${classKeys().map(c=>opt(c,firstFree)).join('')}</select></div>
   <p class="su-hint">The teacher opens the app, taps “New class teacher? Activate your account” and enters this username, password and class. Their platform then opens for that class.</p>
   <button type="button" class="btn btn-primary" data-ct="create">Create teacher account</button></div>
@@ -1329,7 +1263,7 @@ function renderClassTeachers(){
   <div class="ct-actions"><button type="button" class="ct-btn replace" data-ct="replace" data-id="${u.id}">⇄ Replace</button>${u.id==='u2'?'':`<button type="button" class="ct-btn" data-ct="reset" data-id="${u.id}">Reset password</button>`}</div>
   ${ctReplaceId===u.id?`<div class="ct-repl"><p class="su-hint"><b>${escH(u.name)}</b> will be signed out and can no longer sign in. ${escH(normKey(u.className))} keeps all its learners, register and results for the new teacher.</p>
    <div class="field"><label>New teacher username</label><input id="rpUser" maxlength="40" placeholder="e.g. Madam Jane" autocomplete="off"></div>
-   <div class="field"><label>Password</label><div class="pw-wrap"><input id="rpPass" type="text" maxlength="40" placeholder="At least 6 characters" autocomplete="off"><button type="button" class="pw-toggle" data-ct="gen" data-t="rpPass">Generate</button></div></div>
+   <div class="field"><label>Password</label><div class="pw-wrap"><input id="rpPass" type="text" maxlength="40" placeholder="At least 8 characters" autocomplete="off"><button type="button" class="pw-toggle" data-ct="gen" data-t="rpPass">Generate</button></div></div>
    <div class="field"><label>Class</label><input value="${escH(normKey(u.className))}" readonly></div>
    <div class="modal-actions"><button type="button" class="btn btn-light" data-ct="cancel">Cancel</button><button type="button" class="btn btn-primary" data-ct="dorepl" data-id="${u.id}">Replace teacher</button></div></div>`:''}</div>`).join(''):'<div class="bk-note">No class teachers yet. Add the first one above.</div>'}</div>
  ${old.length?`<div class="section-title">REPLACED TEACHERS</div><div class="ct-list">${old.map(u=>{const r=REPLACED[u.id]||{};return`<div class="ct-row old"><div class="ct-top"><div class="ct-av">${escH(u.initials)}</div><div class="ct-main"><strong>${escH(u.name)}</strong><small>${escH(normKey(u.className))} · replaced ${r.date?new Date(r.date).toLocaleDateString('en-GB'):''}</small></div><span class="pill r">Replaced</span></div></div>`;}).join('')}</div>`:''}`;}

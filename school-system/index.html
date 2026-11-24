@@ -23,15 +23,13 @@
       <p class="login-motto hidden" id="loginMotto"></p>
       <div class="login-msg hidden" id="loginMsg"></div>
       <form id="loginForm" autocomplete="off">
-        <div class="field"><label for="loginSchoolName">School name</label><input id="loginSchoolName" type="text" placeholder="Enter your school name" required /></div>
         <div class="field"><label for="loginSchoolCode">School code</label><input id="loginSchoolCode" type="text" autocapitalize="characters" placeholder="Enter school code" required /></div>
-        <div class="field"><label for="loginUser">Your full name / username</label><input id="loginUser" type="text" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="Enter your registered name" /></div>
-        <div class="field"><label for="loginEmail">Registered email (if issued)</label><input id="loginEmail" type="email" autocapitalize="none" placeholder="Enter your registered email" /></div>
+        <div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocapitalize="none" placeholder="Enter your email" required /></div>
         <div class="field"><label for="loginPass">Password</label><div class="pw-wrap"><input id="loginPass" type="password" placeholder="Enter your password" /><button type="button" class="pw-toggle" id="pwToggle">Show</button></div></div>
         <button type="submit" class="btn btn-primary login-btn">Sign In</button>
       </form>
-      <button type="button" class="link-btn" id="showSignup">New parent? Create your account</button>
-      <button type="button" class="link-btn" id="showTeacherSignup">New class teacher? Activate your account</button>
+      <button type="button" class="link-btn hidden" id="showSignup">New parent? Create your account</button>
+      <button type="button" class="link-btn hidden" id="showTeacherSignup">New class teacher? Activate your account</button>
       <form id="teacherForm" class="hidden" autocomplete="off">
         <h3 class="su-title">Activate class teacher account</h3>
         <p class="su-hint">Enter the username, password and class the school administrator gave you. Your class then opens.</p>
@@ -53,7 +51,7 @@
         <button type="button" class="link-btn" id="backToLogin">‹ Back to sign in</button>
       </form>
       <div class="demo-accounts" id="demoBox"><p>DEMO ACCOUNTS · TAP TO FILL</p><div class="demo-chips" id="demoChips"></div></div>
-      <p class="login-foot">Prototype only: sign-in runs inside this browser and is not secure. Real authentication needs a server and will be added in the development stages.</p>
+      <p class="login-foot">Secure sign-in by Klasora. Your school administrator issues your account.</p>
     </div>
   </div>
   <div class="app-shell hidden" id="appShell">
@@ -259,7 +257,7 @@
   <div class="modal-backdrop hidden" id="detailBackdrop"><div class="modal detail-modal"><div class="modal-head"><div><h3 id="detailTitle">Details</h3><p id="detailSub"></p></div><button class="modal-close" id="detailClose">×</button></div><div id="detailBody"></div><div class="modal-actions"><button type="button" class="btn btn-light" id="detailDone">Close</button><button type="button" class="btn btn-primary" id="detailGo">Open</button></div></div></div>
   <div class="modal-backdrop hidden" id="modalBackdrop"><div class="modal"><div class="modal-head"><div><h3 id="modalTitle">Add Record</h3><p>Enter the details below.</p></div><button class="modal-close" id="modalClose">×</button></div><form id="quickForm"><div id="formFields" class="form-fields"></div><div class="modal-actions"><button type="button" class="btn btn-light" id="cancelModal">Cancel</button><button type="submit" class="btn btn-primary">Save Record</button></div></form></div></div>
   <div class="toast" id="toast"></div>
-  <script type="module" src="firebase-auth.js?v=b1"></script>
+  <script type="module" src="firebase-auth.js?v=2"></script>
   <script src="app.js?v=fb2"></script>
 </body>
 </html>

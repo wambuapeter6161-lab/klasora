@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, updatePassword, signOut } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
-import { getFirestore, collection, query, where, getDocs, doc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
@@ -13,44 +13,56 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig, "klasoraSchoolSystem");
 const auth = getAuth(app);
 const db = getFirestore(app);
+const norm = v => String(v || "").trim().toUpperCase();
 
-async function signInSchoolAdmin({ email, password, schoolCode, schoolName, adminName }) {
-  const credential = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+// Loads the signed-in user's profile (role, school) and checks the school is active.
+async function loadProfile(user) {
+  const p = await getDoc(doc(db, "users", user.uid));
+  if (!p.exists()) throw new Error("This account is not linked to a school. Contact your school administrator.");
+  const profile = p.data();
+  const s = await getDoc(doc(db, "schools", profile.schoolId));
+  if (!s.exists()) throw new Error("School record not found. Contact Klasora support.");
+  const school = s.data();
+  if (String(school.status || "").toLowerCase() !== "active") throw new Error("This school account is not active. Please contact Klasora support.");
+  return { user, profile, school, schoolId: profile.schoolId };
+}
+
+async function signIn(email, password, schoolCode) {
+  const cred = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
   try {
-    const q = query(collection(db, "schools"), where("adminUid", "==", credential.user.uid));
-    const snap = await getDocs(q);
-    if (snap.empty) throw new Error("This Firebase account is not linked to a registered Klasora school.");
-    if (snap.size !== 1) throw new Error("This administrator account is linked to more than one school. Contact Klasora support.");
-    const schoolDoc = snap.docs[0];
-    const school = schoolDoc.data();
-    const norm = value => String(value || "").trim().toLowerCase();
-    if (norm(school.code) !== norm(schoolCode).toUpperCase().toLowerCase()) throw new Error("The school code does not match this administrator account.");
-    if (norm(school.name) !== norm(schoolName)) throw new Error("The school name does not match this school code.");
-    if (norm(school.adminName) !== norm(adminName)) throw new Error("The administrator name does not match the registered school administrator.");
-    if (norm(school.adminEmail) !== norm(email)) throw new Error("The email does not match the registered school administrator.");
-    if (String(school.status || "Active").toLowerCase() !== "active") throw new Error("This school account is not active. Please contact Klasora support.");
-    return { user: credential.user, school, schoolId: schoolDoc.id };
-  } catch (error) {
+    const r = await loadProfile(cred.user);
+    if (schoolCode && norm(schoolCode) !== norm(r.schoolId)) throw new Error("The school code does not match this account.");
+    return r;
+  } catch (e) {
     await signOut(auth);
-    throw error;
+    throw e;
   }
 }
 
-async function completeFirstLoginPassword(newPassword, schoolId) {
-  const user = auth.currentUser;
-  if (!user) throw new Error("Your session has expired. Sign in again.");
-  if (newPassword.length < 8) throw new Error("Use at least 8 characters for your new password.");
-  await updatePassword(user, newPassword);
-  await updateDoc(doc(db, "schools", schoolId), {
-    mustChangePassword: false,
-    activated: true,
-    lastLoginAt: serverTimestamp()
+// Resolves to the signed-in session (or null) once Firebase has checked for a saved login.
+function restore() {
+  return new Promise(resolve => {
+    const off = onAuthStateChanged(auth, async user => {
+      off();
+      if (!user) return resolve(null);
+      try { resolve(await loadProfile(user)); }
+      catch (e) { await signOut(auth); resolve(null); }
+    });
   });
 }
 
-async function loadSchoolStudents(schoolId) {
+async function changePassword(currentPassword, newPassword) {
   const user = auth.currentUser;
-  if (!user || !schoolId) throw new Error("Sign in to a school before loading student records.");
+  if (!user) throw new Error("Your session has expired. Sign in again.");
+  if (currentPassword) {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+  }
+  await updatePassword(user, newPassword);
+  try { await updateDoc(doc(db, "users", user.uid), { mustChangePassword: false, lastLoginAt: serverTimestamp() }); } catch (e) {}
+}
+
+async function loadSchoolStudents(schoolId) {
+  if (!auth.currentUser || !schoolId) throw new Error("Sign in to a school before loading student records.");
   const snap = await getDocs(collection(db, "schools", schoolId, "students"));
   return snap.docs.map(item => ({ id: item.id, ...item.data() }));
 }
@@ -59,7 +71,6 @@ async function createSchoolStudent(schoolId, student) {
   const user = auth.currentUser;
   if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
   if (!student || !student.adm || !student.name) throw new Error("Student admission details are incomplete.");
-  // UPI values may contain '/', which Firestore does not allow in document IDs.
   const documentId = String(student.adm).trim().replaceAll("/", "_");
   const record = {
     name: String(student.name).trim(),
@@ -78,11 +89,4 @@ async function createSchoolStudent(schoolId, student) {
   return { ...record, id: documentId, date: new Date().toISOString().slice(0, 10) };
 }
 
-window.KlasoraFirebase = {
-  signInSchoolAdmin,
-  loadSchoolStudents,
-  createSchoolStudent,
-  completeFirstLoginPassword,
-  signOut: () => signOut(auth)
-};
-        
+window.KlasoraFirebase = { signIn, restore, changePassword, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
