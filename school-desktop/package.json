@@ -1,0 +1,25 @@
+{
+  "name": "klasora-school-system",
+  "version": "1.0.0",
+  "description": "Klasora School System for Windows",
+  "author": "Willbrod Labs",
+  "main": "main.js",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.willbrodlabs.klasora.school",
+    "productName": "Klasora School System",
+    "files": ["main.js", "app/**"],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Klasora-School-System-Setup.exe"
+    }
+  }
+}
