@@ -50,3 +50,7 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media(max-width:1100px),(max-height:520px){.app{display:block}.sidebar{position:fixed;top:0;left:0;bottom:0;width:272px;max-width:82vw;z-index:60;overflow-y:auto;transform:translateX(-105%);transition:transform .25s ease;box-shadow:none}.sidebar.open{transform:none;box-shadow:12px 0 40px #000a}.menu-btn{display:grid}.scrim{display:block}.main{padding:14px 12px 10px}.topbar{margin:-14px -12px 14px}}
 @media(max-height:520px){.topbar{min-height:48px;padding:4px 12px}.topbar h1{font-size:16px}.topbar .eyebrow{display:none}.dash-stat{min-height:60px;padding:8px 12px}.stat-icon{width:30px;height:30px}.stat-icon .ic{width:16px;height:16px}.quick-actions{margin:8px 0 10px}.back-btn{margin-bottom:10px}.login-screen{padding:10px;align-items:start}.login-card{padding:18px 22px}.login-card .logo{width:46px;height:46px}.login-card h1{font-size:22px;margin:4px 0}.login-card p{margin-bottom:8px}.login-card label{margin-top:8px}.sidebar .brand{padding-bottom:10px}}
 @media(max-width:650px){.dash-stat strong{font-size:clamp(15px,5vw,19px)}.dash-stat span{font-size:8px}}
+
+/* v12 */
+.sheet label.chk{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:12px;font-weight:700}.sheet .chk input{width:20px;height:20px;padding:0;margin:0;box-shadow:none}
+.notice.danger{background:#fdecec;border:1px solid #f3c1c1;color:#a12a2a;margin-bottom:14px}.notice .btn{margin:8px 0 0}.rst{margin:0;width:100%;padding:8px;font-size:11px}.form-note{margin:14px 0 4px}

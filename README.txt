@@ -40,3 +40,22 @@ UPDATE v10
 
 UPDATE v11
 - New schools are saved with activated: true automatically (no manual change in Firestore).
+
+
+UPDATE v13  (FREE PLAN - NO CLOUD FUNCTIONS NEEDED)
+- Registering a school creates the administrator's login, the school record and the schoolCodes/{CODE} record from the browser. The temporary password is shown ONCE and never stored.
+- "Send password reset email" replaces "reset password" (the administrator picks a new password from the emailed link).
+- Pausing a school switches its code off; resuming switches it on.
+- Deleting a school removes its record, code and students. Also delete the administrator's login in Firebase Console > Authentication > Users so the email can be reused.
+- Revenue chart uses real payments (tick "Payment received" when saving a subscription). ONLINE counts people active in the last 2 minutes. Students/Staff/Users show totals reported by school apps.
+
+Deploy
+1. Upload superadmin.html, superadmin.css, superadmin.js, klasora-icon.svg to GitHub.
+2. Firebase console > Firestore > Rules: paste firestore.rules and Publish.
+3. Register a new school. Schools created by older versions have no administrator login; re-register them.
+
+For the school app
+- Code check: read schoolCodes/{CODE} (code in capitals) and require active == true.
+- Presence: each signed-in user writes presence/{their uid} = { role, schoolId, lastSeenMs: Date.now() } about once a minute.
+- Totals: the school administrator's app updates its school record with studentCount, staffCount, userCount and statsUpdatedAt (ISO date).
+- After the administrator's first password change, set mustChangePassword to false on the school record.
