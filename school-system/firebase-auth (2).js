@@ -1,0 +1,154 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
+  authDomain: "klasora-school.firebaseapp.com",
+  projectId: "klasora-school",
+  storageBucket: "klasora-school.firebasestorage.app",
+  messagingSenderId: "274741090812",
+  appId: "1:274741090812:web:77ce9fdfb32f42d0383a79"
+};
+const app = initializeApp(firebaseConfig, "klasoraSchoolSystem");
+const auth = getAuth(app);
+// Second app instance: creates staff logins without signing the school administrator out.
+const authProv = getAuth(initializeApp(firebaseConfig, "klasoraProvisioning"));
+const db = getFirestore(app);
+const norm = v => String(v || "").trim().toUpperCase();
+
+// Loads the signed-in user's profile (role, school) and checks the school is active.
+async function loadProfile(user) {
+  const p = await getDoc(doc(db, "users", user.uid));
+  if (!p.exists()) throw new Error("This account is not linked to a school. Contact your school administrator.");
+  const profile = p.data();
+  const s = await getDoc(doc(db, "schools", profile.schoolId));
+  if (!s.exists()) throw new Error("School record not found. Contact Klasora support.");
+  const school = s.data();
+  if (String(school.status || "").toLowerCase() !== "active") throw new Error("This school account is not active. Please contact Klasora support.");
+  return { user, profile, school, schoolId: profile.schoolId };
+}
+
+async function signIn(email, password, schoolCode) {
+  const cred = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+  try {
+    const r = await loadProfile(cred.user);
+    if (schoolCode && norm(schoolCode) !== norm(r.schoolId)) throw new Error("The school code does not match this account.");
+    return r;
+  } catch (e) {
+    await signOut(auth);
+    throw e;
+  }
+}
+
+// Resolves to the signed-in session (or null) once Firebase has checked for a saved login.
+function restore() {
+  return new Promise(resolve => {
+    const off = onAuthStateChanged(auth, async user => {
+      off();
+      if (!user) return resolve(null);
+      try { resolve(await loadProfile(user)); }
+      catch (e) { await signOut(auth); resolve(null); }
+    });
+  });
+}
+
+async function changePassword(currentPassword, newPassword) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Your session has expired. Sign in again.");
+  if (currentPassword) {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+  }
+  await updatePassword(user, newPassword);
+  try { await updateDoc(doc(db, "users", user.uid), { mustChangePassword: false, lastLoginAt: serverTimestamp() }); } catch (e) {}
+}
+
+async function loadSchoolStudents(schoolId) {
+  if (!auth.currentUser || !schoolId) throw new Error("Sign in to a school before loading student records.");
+  const snap = await getDocs(collection(db, "schools", schoolId, "students"));
+  return snap.docs.map(item => ({ id: item.id, ...item.data() }));
+}
+
+async function createSchoolStudent(schoolId, student) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  if (!student || !student.adm || !student.name) throw new Error("Student admission details are incomplete.");
+  const documentId = String(student.adm).trim().replaceAll("/", "_");
+  const record = {
+    name: String(student.name).trim(),
+    adm: String(student.adm).trim().toUpperCase(),
+    cls: String(student.cls || ""),
+    gender: String(student.gender || ""),
+    dob: String(student.dob || ""),
+    parent: String(student.parent || ""),
+    relation: String(student.relation || "Guardian"),
+    phone: String(student.phone || ""),
+    status: "Active",
+    createdAt: serverTimestamp(),
+    createdBy: user.uid
+  };
+  await setDoc(doc(db, "schools", schoolId, "students", documentId), record);
+  return { ...record, id: documentId, date: new Date().toISOString().slice(0, 10) };
+}
+
+// Loads only the students this user's role is allowed to see (matches the Firestore rules).
+async function loadStudents(r) {
+  const col = collection(db, "schools", r.schoolId, "students");
+  const role = r.profile.role;
+  let docs = [];
+  if (role === "admin" || role === "accountant") {
+    docs = (await getDocs(col)).docs;
+  } else if (role === "teacher") {
+    const parts = await Promise.all((r.profile.classes || []).map(c => getDocs(query(col, where("cls", "==", c)))));
+    docs = parts.flatMap(p => p.docs);
+  } else if (role === "parent") {
+    const snaps = await Promise.all((r.profile.children || []).map(id => getDoc(doc(col, id))));
+    docs = snaps.filter(s => s.exists());
+  }
+  return docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+async function saveStudents(schoolId, list) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  for (let i = 0; i < list.length; i += 400) {
+    const batch = writeBatch(db);
+    list.slice(i, i + 400).forEach(s => {
+      const adm = String(s.adm).trim().toUpperCase();
+      batch.set(doc(db, "schools", schoolId, "students", adm.replaceAll("/", "_")), {
+        name: String(s.name).trim(), adm, cls: String(s.cls || ""), gender: String(s.gender || ""),
+        dob: String(s.dob || ""), parent: String(s.parent || ""), relation: String(s.relation || "Guardian"),
+        phone: String(s.phone || ""), status: s.status || "Active", createdAt: serverTimestamp(), createdBy: user.uid
+      });
+    });
+    await batch.commit();
+  }
+}
+
+// School administrator creates a login (teacher, accountant or parent) for their own school.
+async function createUserAccount(schoolId, u) {
+  const admin = auth.currentUser;
+  if (!admin || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  const email = String(u.email).trim().toLowerCase();
+  const cred = await createUserWithEmailAndPassword(authProv, email, u.password);
+  const uid = cred.user.uid;
+  try {
+    await setDoc(doc(db, "users", uid), {
+      role: u.role, schoolId, name: u.name, email,
+      classes: u.classes || [], children: u.children || [],
+      mustChangePassword: true, createdAt: serverTimestamp(), createdBy: admin.uid
+    });
+  } catch (e) {
+    try { await deleteUser(authProv.currentUser); } catch (_e) {}   // do not leave a login without a profile
+    throw e;
+  }
+  await signOut(authProv);
+  return uid;
+}
+
+async function listSchoolUsers(schoolId) {
+  const snap = await getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId)));
+  return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, createUserAccount, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
