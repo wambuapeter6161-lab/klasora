@@ -383,7 +383,3 @@ app.js, so anyone who can open the files can read them. This is NOT real
 security. Real login needs a server with hashed passwords and server-side
 permission checks. All records are sample data. Do not enter real children's
 personal information or financial records.
-
-
-CURRENT BUILD: STAGE 3 — STUDENT FIRESTORE INTEGRATION
-See KLASORA_SCHOOL_SYSTEM_STAGE3.txt before deployment. Only the Students module is migrated in this stage.

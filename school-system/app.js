@@ -162,49 +162,46 @@ function getModule(page){
 /* ---------- Login screen ---------- */
 function showLoginMsg(text,type){const el=$('loginMsg');if(!text){el.classList.add('hidden');return}el.textContent=text;el.className='login-msg'+(type==='info'?' info':'');}
 function getLock(){try{return JSON.parse(store.get(LOCK_KEY))||{fails:0,until:0}}catch(e){return{fails:0,until:0}}}
-// Firebase-backed school administrator sign-in. Staff and parent sign-ins are
-// intentionally not enabled in this stage; their secure account flows come later.
-$('demoBox')?.classList.add('hidden');
-$('loginUser').required=true;
-$('loginEmail').required=true;
-$('loginPass').required=true;
-$('loginForm').addEventListener('submit', async e=>{
- e.preventDefault();
- const adminName=$('loginUser').value.trim();
- const email=$('loginEmail').value.trim().toLowerCase();
- const schoolName=$('loginSchoolName').value.trim();
- const schoolCode=$('loginSchoolCode').value.trim().toUpperCase().replace(/\s+/g,'');
- const password=$('loginPass').value;
- if(!adminName||!email||!schoolName||!schoolCode||!password){showLoginMsg('Enter your school name, school code, administrator name, registered email and temporary password.');return;}
- const submit=$('loginForm').querySelector('[type="submit"]');
- submit.disabled=true;submit.textContent='Verifying account…';
- try{
-  if(!window.KlasoraFirebase)throw new Error('Firebase is still loading. Please wait a moment and try again.');
-  const result=await window.KlasoraFirebase.signInSchoolAdmin({email,password,schoolCode,schoolName,adminName});
-  const school=result.school;
-  // The real school roster replaces all bundled demonstration learners.
-  const cloudStudents = await window.KlasoraFirebase.loadSchoolStudents(result.schoolId);
-  EXTRA = cloudStudents.map(x=>({name:x.name,adm:x.adm,cls:x.cls,gender:x.gender,dob:x.dob||'',parent:x.parent||'',relation:x.relation||'Guardian',phone:x.phone||'',status:x.status||'Active',date:x.date||''}));
-  HIDE.students = true;
-  rebuildStudents();
-  store.set(SCHOOL_KEY,JSON.stringify({name:school.name,type:school.type||'School',motto:school.motto||'',logo:school.logo||'',phones:school.phones||[],poBox:school.poBox||'',schoolCode:school.code,schoolId:result.schoolId}));
-  applySchool();
-  const u={id:result.user.uid,username:school.adminName,name:school.adminName,email:school.adminEmail,initials:schoolInitials(school.adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:school.code,schoolName:school.name,poBox:school.poBox||'',schoolId:result.schoolId,mustChange:!!school.mustChangePassword,firebaseAuthUser:true};
-  store.del(LOCK_KEY);
-  startSession(u,true);
- }catch(err){
-  showLoginMsg(firebaseLoginMessage(err));
-  $('loginPass').value='';
- }finally{submit.disabled=false;submit.textContent='Sign In';}
-});
-function firebaseLoginMessage(err){
- const code=String(err?.code||'');
- if(code.includes('auth/invalid-credential')||code.includes('auth/wrong-password')||code.includes('auth/user-not-found'))return 'The email or temporary password is incorrect. Check the details supplied by your Super Admin.';
- if(code.includes('auth/too-many-requests'))return 'Too many sign-in attempts. Please wait and try again later.';
- if(code.includes('permission-denied'))return 'Firebase denied access to the school record. The updated Firestore rules must be published first.';
- return err?.message||'Could not sign in. Please try again.';
-}
+$('demoChips').innerHTML=USERS.map(u=>`<button type="button" class="demo-chip" data-user="${u.username}"><strong>${ROLES[u.role].label}</strong><small>${u.username} · ${u.password}</small></button>`).join('');
+$('demoChips').addEventListener('click',e=>{const b=e.target.closest('.demo-chip');if(!b)return;const u=USERS.find(x=>x.username===b.dataset.user);$('loginUser').value=u.username;$('loginPass').value=u.password;$('loginSchoolName').value='Greenfield Academy';$('loginSchoolCode').value='GFA001';showLoginMsg('');});
 $('pwToggle').onclick=()=>{const p=$('loginPass'),show=p.type==='password';p.type=show?'text':'password';$('pwToggle').textContent=show?'Hide':'Show';};
+$('loginForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const lock=getLock(),now=Date.now();
+ if(lock.until>now){showLoginMsg(`Too many failed attempts. Try again in ${Math.ceil((lock.until-now)/1000)} seconds.`);return}
+ const name=$('loginUser').value.trim().toLowerCase(),email=($('loginEmail')?.value||'').trim().toLowerCase(),schoolName=($('loginSchoolName')?.value||'').trim().toLowerCase(),pass=$('loginPass').value;
+ if(!name||!pass){showLoginMsg('Enter your username and password.');return}
+ const schoolCode=($('loginSchoolCode')?.value||'').trim().toUpperCase();
+ if(!schoolCode||!schoolName){showLoginMsg('Enter your school name and school code.');return;}
+ let u=null;
+ // Central school administrator account created by the Willbrod Labs Super Admin portal.
+ if(schoolCode){
+  let registry=[];try{registry=JSON.parse(localStorage.getItem('klasora_central_schools')||'[]')}catch(_e){}
+  const school=registry.find(x=>String(x.code||'').toUpperCase()===schoolCode&&x.status==='Active');
+  if(!school){showLoginMsg('School code not found or school is not active. Check the code with your school.');return;}
+  const identity=String(name||'').trim().toLowerCase();
+  if(identity===String(school.adminName||'').trim().toLowerCase()&&email===String(school.adminEmail||'').trim().toLowerCase()&&schoolName===String(school.name||'').trim().toLowerCase()){
+   u=USERS.find(x=>x.id==='central_'+school.id);
+   if(!u){u={id:'central_'+school.id,username:school.adminName,name:school.adminName,email:school.adminEmail,initials:schoolInitials(school.adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:school.code,schoolName:school.name,poBox:school.poBox};USERS.push(u);}
+   const savedCred=CREDS[u.id];if(savedCred){u.salt=savedCred.salt;u.passHash=savedCred.hash;u.mustChange=!!savedCred.must;}
+   if(!school.activated&&pass===school.tempPassword){setCreds(u,pass,true);school.activated=true;delete school.tempPassword;localStorage.setItem('klasora_central_schools',JSON.stringify(registry));}
+   if(!passOk(u,pass))u=null;
+   else{store.set(SCHOOL_KEY,JSON.stringify({name:school.name,type:'School',motto:'',logo:'',phones:[],poBox:school.poBox,schoolCode:school.code}));applySchool();}
+  }
+ }
+ if(!u)u=findLogin(email||name,pass);
+ if(u&&schoolCode&&String(u.schoolCode||'GFA001').toUpperCase()!==schoolCode){showLoginMsg('This account does not belong to the school code entered.');return;}
+ if(u&&schoolName!==String(getSchool().name||'').trim().toLowerCase()){showLoginMsg('The school name does not match this school code.');return;}
+ if(u&&u.status==='Replaced'){showLoginMsg('This account is no longer active. Please contact the school administrator.');return}
+ if(u&&u.pending){showLoginMsg('Your class teacher account is not activated yet. Tap “New class teacher? Activate your account” below.');return}
+ if(!u||u.status!=='Active'){
+  lock.fails=(lock.fails||0)+1;
+  if(lock.fails>=MAX_FAILS){lock.until=now+LOCK_SECONDS*1000;lock.fails=0;store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Too many failed attempts. Sign-in is locked for ${LOCK_SECONDS} seconds.`);}
+  else{store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Incorrect username or password. ${MAX_FAILS-lock.fails} attempt${MAX_FAILS-lock.fails===1?'':'s'} left.`);}
+  $('loginPass').value='';return;
+ }
+ store.del(LOCK_KEY);startSession(u,true);
+});
 
 /* ---------- Session ---------- */
 function startSession(u,fresh){
@@ -218,7 +215,6 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- if(currentUser?.firebaseAuthUser)window.KlasoraFirebase?.signOut().catch(()=>{});
  currentUser=null;store.del(SESSION_KEY);
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
@@ -379,7 +375,7 @@ function applySchool(){
  ['sidebarLogo','loginLogo','topLogo'].forEach(id=>paintLogo($(id),s));
  $('topSchoolName').textContent=s.name;
  $('sidebarSchoolName').textContent=s.name;$('sidebarSchoolType').textContent=s.type||'School';
- $('loginBrandSchoolName').textContent=s.name;$('loginSub').textContent='Sign in to '+s.name;
+ $('loginSchoolName').textContent=s.name;$('loginSub').textContent='Sign in to '+s.name;
  $('loginMotto').textContent=s.motto;$('loginMotto').classList.toggle('hidden',!s.motto);
  document.title=s.name+' | Klasora';
 }
@@ -680,7 +676,7 @@ function createParentAccount(schoolCode,name,upi){
 }
 /* ----- register a new student (used by the registration form) ----- */
 function nextAdm(){const y=new Date().getFullYear(),nums=allStudents().filter(s=>s.adm.startsWith('GFA-'+y+'-')).map(s=>parseInt(s.adm.slice(-4),10));return'GFA-'+y+'-'+String((nums.length?Math.max(...nums):0)+1).padStart(4,'0');}
-async function registerStudent(d){
+function registerStudent(d){
  const phone=normPhone(d.phone);
  if(wordCount(d.name)<2)return{error:"Enter the learner's full name (first and last name)."};
  if(!d.gender)return{error:'Select the learner’s gender.'};
@@ -693,12 +689,7 @@ async function registerStudent(d){
  if(!phone)return{error:'Enter a valid parent phone number, for example 0712 345 678.'};
  if(allStudents().some(s=>normName(s.name)===normName(d.name)&&s.cls===d.cls&&s.gphone===phone))return{error:'This learner is already registered with that parent.'};
  const rec={name:d.name.replace(/[<>]/g,'').trim().replace(/\s+/g,' '),adm:adm,cls:d.cls,gender:d.gender,dob:d.dob||'',parent:d.parent.replace(/[<>]/g,'').trim().replace(/\s+/g,' '),relation:d.relation||'Guardian',phone,date:new Date().toISOString().slice(0,10)};
- let ok=false;
- if(currentUser?.firebaseAuthUser){
-  try{await window.KlasoraFirebase.createSchoolStudent(currentUser.schoolId,rec);ok=true;}
-  catch(error){return{error:error?.code==='permission-denied'?'Firestore blocked this save. Publish the Stage 3 student rules first.':(error?.message||'Could not save the student to Firestore.')}}
- }else{ok=store.set(NEWSTU_KEY,JSON.stringify([...EXTRA,rec]));}
- EXTRA.push(rec);rebuildStudents();
+ EXTRA.push(rec);const ok=store.set(NEWSTU_KEY,JSON.stringify(EXTRA));rebuildStudents();
  return{student:rec,saved:ok,hasAccount:!!accountFor(phone),siblings:allStudents().filter(s=>s.gphone===phone&&s.adm!==rec.adm).map(s=>s.name)};
 }
 function openStudentForm(){
@@ -714,13 +705,12 @@ $('stPhone').addEventListener('input',()=>{const p=normPhone($('stPhone').value)
  else{h.className='field-hint';h.textContent='New family. The parent can create a portal account with this name and phone number.';}});
 $('stClose').onclick=closeStudentForm;$('stCancel').onclick=closeStudentForm;
 $('studentBackdrop').addEventListener('click',e=>{if(e.target.id==='studentBackdrop')closeStudentForm();});
-$('stSave').onclick=async()=>{
+$('stSave').onclick=()=>{
  if(!currentUser||currentUser.role!=='admin'){toast('Only the administrator can register students.');return}
- const saveBtn=$('stSave');saveBtn.disabled=true;saveBtn.textContent='Saving…';
- const r=await registerStudent({adm:$('stAdm').value,name:$('stName').value,gender:$('stGender').value,cls:$('stClass').value,dob:$('stDob').value,parent:$('stParent').value,relation:$('stRelation').value,phone:$('stPhone').value});
+ const r=registerStudent({adm:$('stAdm').value,name:$('stName').value,gender:$('stGender').value,cls:$('stClass').value,dob:$('stDob').value,parent:$('stParent').value,relation:$('stRelation').value,phone:$('stPhone').value});
  if(r.error){toast(r.error);return}
  const s=r.student;closeStudentForm();applyRole();showPage('students');
- showDetail({grad:G.green,label:'UPI No.',value:s.adm,title:'Student Registered',sub:r.saved?'Saved securely to this school in Firebase':'Saved to this browser',go:'students',goLabel:'View Students',
+ showDetail({grad:G.green,label:'UPI No.',value:s.adm,title:'Student Registered',sub:r.saved?'Saved to this browser':'Saved for this session only',go:'students',goLabel:'View Students',
   body:sec('LEARNER',[['Name',s.name],['Class',s.cls],['Gender',s.gender]])+sec('PARENT / GUARDIAN',[['Name',s.parent+' ('+s.relation+')'],['Phone',fmtPhone(s.phone)]])+
    sec('PARENT PORTAL',r.hasAccount?[['Status','Already linked'],['Note','This child now appears in the parent’s account']]:[['Status','Not linked yet'],['Parent signs up with','School code, registered parent name and child UPI number']])+(r.siblings.length?sec('SIBLINGS',[['Linked to',r.siblings.join(', ')]]):'')});
 };
@@ -1161,7 +1151,7 @@ $('pwBackdrop').addEventListener('click',e=>{
  if(e.target.id==='pwBackdrop'&&!pwForced){closePw();return}
  const a=e.target.dataset&&e.target.dataset.pw;if(!a)return;
  if(a==='close')closePw();else if(a==='signout'){closePw();signOut('You have been signed out.');}
- else if(a==='save'){if(currentUser?.firebaseAuthUser){const n1=$('pwNew').value,n2=$('pwNew2').value;if(n1.length<8){toast('Use at least 8 characters for your new password.');return}if(n1!==n2){toast('The two passwords do not match.');return}const b=e.target.closest('[data-pw=save]');if(b){b.disabled=true;b.textContent='Saving…'}window.KlasoraFirebase.completeFirstLoginPassword(n1,currentUser.schoolId).then(()=>{currentUser.mustChange=false;closePw();toast('Your new password is saved. Welcome to Klasora.');}).catch(err=>{toast(firebaseLoginMessage(err));if(b){b.disabled=false;b.textContent='Save password'}});return;}const err=changePassword(currentUser,pwForced?'':$('pwCur').value,$('pwNew').value,$('pwNew2').value,pwForced);if(err){toast(err);return}closePw();toast('Password saved.');}});
+ else if(a==='save'){const err=changePassword(currentUser,pwForced?'':$('pwCur').value,$('pwNew').value,$('pwNew2').value,pwForced);if(err){toast(err);return}closePw();toast('Password saved.');}});
 $('pfChangePw').onclick=()=>{closeProfile();openPwModal(false);};
 
 /* ----- administrator: parent login details + reset ----- */
@@ -2047,8 +2037,7 @@ $('pdModal').addEventListener('click',e=>{
  toast('Announcement sent to '+(aud==='Whole School'?'the whole school (teachers and accountant)':aud.toLowerCase())+'.'+(ok?'':' Saved for this session only.'));
 });
 
-// Firebase authentication is used for the administrator. The legacy local demo-session restore is disabled.
-store.del(SESSION_KEY);
+restoreSession();
 
 
 /* ================= v2.3: streams per class, class list ================= */

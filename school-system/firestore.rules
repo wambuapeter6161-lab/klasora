@@ -1,46 +1,47 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSuperAdmin() {
       return request.auth != null
         && request.auth.uid == 'NiquOT8pm7hha8mM6nlsuYvN0tr1';
     }
 
+    function isSchoolAdmin(schoolId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/schools/$(schoolId))
+        && get(/databases/$(database)/documents/schools/$(schoolId)).data.adminUid == request.auth.uid;
+    }
+
     match /schools/{schoolId} {
       allow read: if isSuperAdmin()
         || (request.auth != null && resource.data.adminUid == request.auth.uid);
-      allow create: if isSuperAdmin()
-        && request.resource.data.adminUid is string
-        && request.resource.data.adminEmail is string
-        && request.resource.data.code is string
-        && !('tempPassword' in request.resource.data);
-      // The linked administrator may only complete the first-login flags.
-      // The password itself is changed in Firebase Authentication, never Firestore.
+
+      allow create: if isSuperAdmin();
+
       allow update: if isSuperAdmin()
-        || (request.auth != null
-          && resource.data.adminUid == request.auth.uid
+        || (
+          isSchoolAdmin(schoolId)
           && request.resource.data.adminUid == resource.data.adminUid
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['mustChangePassword', 'activated', 'lastLoginAt'])
           && request.resource.data.mustChangePassword == false
-          && request.resource.data.activated == true);
-      allow delete: if false;
-    }
+          && request.resource.data.activated == true
+        );
 
-    // Student records belong to one school. Only that school's linked
-    // administrator (or the Super Admin) can read and manage them.
-    match /schools/{schoolId}/students/{studentId} {
-      allow read, write: if isSuperAdmin()
-        || (request.auth != null
-          && get(/databases/$(database)/documents/schools/$(schoolId)).data.adminUid == request.auth.uid);
+      allow delete: if false;
+
+      match /students/{studentId} {
+        allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+      }
     }
 
     match /schoolCodes/{code} {
       allow read: if isSuperAdmin()
         || (request.auth != null && resource.data.adminUid == request.auth.uid);
-      allow create: if isSuperAdmin()
-        && request.resource.data.adminUid is string
-        && request.resource.data.schoolId is string;
+
+      allow create: if isSuperAdmin();
+
       allow update, delete: if false;
     }
 
@@ -55,10 +56,10 @@ service cloud.firestore {
     }
 
     match /superAdminProfile/{uid} {
-      allow read, write: if isSuperAdmin() && request.auth.uid == uid;
+      allow read, write: if isSuperAdmin()
+        && request.auth.uid == uid;
     }
 
-    // School operational collections remain closed until the next data-migration stage.
     match /{document=**} {
       allow read, write: if false;
     }

@@ -1,0 +1,16 @@
+KLASORA V4 PACKAGE STATUS
+
+Included:
+- Original uploaded Klasora_V4_Final.zip contents, unchanged
+- firestore.rules supplied by the user
+- DEPLOYMENT_README.md with GitHub Pages steps and current limitations
+
+Not represented as complete:
+- Firebase Authentication connection
+- Secure Teacher and Accountant provisioning by School Administrator
+- Verified Parent-to-child authentication/linking
+- Firestore migration for all school modules
+- Role-specific Firestore security rules for all four portals
+- Missing Super Admin web page referenced in the original README
+
+This is a deployable static prototype package, not a production-ready Firebase four-portal release.
