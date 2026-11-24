@@ -184,8 +184,31 @@ $('loginForm').addEventListener('submit',async e=>{
  const schoolCode=($('loginSchoolCode')?.value||'').trim().toUpperCase();
  if(!schoolCode||!schoolName){showLoginMsg('Enter your school name and school code.');return;}
  let u=null;
- // Central school administrator account created by the Willbrod Labs Super Admin portal.
- if(schoolCode){
+ // School administrator sign-in now uses Firebase B (klasora-school). GFA001 stays the offline demo school.
+ let fbB=false;
+ if(schoolCode!=='GFA001'){
+  fbB=true;
+  const failB=msg=>{lock.fails=(lock.fails||0)+1;if(lock.fails>=MAX_FAILS){lock.until=now+LOCK_SECONDS*1000;lock.fails=0;store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(`Too many failed attempts. Sign-in is locked for ${LOCK_SECONDS} seconds.`);}else{store.set(LOCK_KEY,JSON.stringify(lock));showLoginMsg(msg);}$('loginPass').value='';};
+  if(!window.KlasoraFirebase){showLoginMsg('Secure sign-in is still loading. Wait a moment and try again.');return;}
+  if(!email){showLoginMsg('Enter the registered email for this school account.');return;}
+  let r=null;
+  try{r=await KlasoraFirebase.signInSchoolAdmin({email,password:pass,schoolCode,schoolName:$('loginSchoolName').value,adminName:$('loginUser').value});}
+  catch(err){
+   const c=String(err&&err.code||'');
+   if(c==='auth/network-request-failed'){showLoginMsg('No internet connection. Check your connection and try again.');return;}
+   if(c==='auth/too-many-requests'){showLoginMsg('Too many attempts. Wait a few minutes and try again.');return;}
+   failB(c.startsWith('auth/')?'Incorrect email or password.':String(err&&err.message||'Sign-in failed.'));return;
+  }
+  const d=r.school,adminName=String(d.adminName||name);
+  u=USERS.find(x=>x.id==='central_'+r.schoolId);
+  if(!u){u={id:'central_'+r.schoolId,username:adminName,name:adminName,email,initials:schoolInitials(adminName),role:'admin',title:'School Administrator',status:'Active',schoolCode:d.code||schoolCode,schoolName:d.name,poBox:d.poBox||''};USERS.push(u);}
+  const sc=CREDS[u.id];if(sc){u.salt=sc.salt;u.passHash=sc.hash;u.mustChange=!!sc.must;}
+  if(!passOk(u,pass))setCreds(u,pass,d.mustChangePassword===true);
+  u.mustChange=d.mustChangePassword===true;
+  store.set(SCHOOL_KEY,JSON.stringify({name:d.name,type:'School',motto:'',logo:'',phones:[],poBox:d.poBox||'',schoolCode:d.code||schoolCode}));applySchool();
+ }
+ // Legacy lookup (Firebase A / local registry) is used only for the offline demo school.
+ if(schoolCode&&!fbB){
   let registry=[];try{registry=JSON.parse(localStorage.getItem('klasora_central_schools')||'[]')}catch(_e){}
   let school=null,meta=null;
   try{meta=await fsGet('schoolCodes/'+encodeURIComponent(schoolCode))}catch(_e){meta=null}
@@ -1176,17 +1199,26 @@ function openPwModal(forced){
  <div class="modal-actions">${forced?'<button type="button" class="btn btn-light" data-pw="signout">Sign out</button>':'<button type="button" class="btn btn-light" data-pw="close">Cancel</button>'}<button type="button" class="btn btn-primary" data-pw="save">Save password</button></div>`;
  $('pwBackdrop').classList.remove('hidden');}
 function closePw(){$('pwBackdrop').classList.add('hidden');}
-function changePassword(u,cur,n1,n2,forced){
+function changePassword(u,cur,n1,n2,forced,dry){
  if(!forced&&!passOk(u,cur))return'Your current password is not correct.';
  if(n1.length<6)return'Choose a password with at least 6 characters.';
  if(n1!==n2)return'The two passwords do not match.';
  if(passOk(u,n1))return'Choose a password different from the current one.';
+ if(dry)return'';
  setCreds(u,n1,false);if(String(u.id).startsWith('central_')&&fbToken){fbSetPassword(fbToken,n1);fbMarkChanged(String(u.id).slice(8));}return'';}
 $('pwBackdrop').addEventListener('click',e=>{
  if(e.target.id==='pwBackdrop'&&!pwForced){closePw();return}
  const a=e.target.dataset&&e.target.dataset.pw;if(!a)return;
  if(a==='close')closePw();else if(a==='signout'){closePw();signOut('You have been signed out.');}
- else if(a==='save'){const err=changePassword(currentUser,pwForced?'':$('pwCur').value,$('pwNew').value,$('pwNew2').value,pwForced);if(err){toast(err);return}closePw();toast('Password saved.');}});
+ else if(a==='save'){(async()=>{
+  const cu=currentUser,cur=pwForced?'':$('pwCur').value,n1=$('pwNew').value,n2=$('pwNew2').value,forced=pwForced;
+  const err=changePassword(cu,cur,n1,n2,forced,true);if(err){toast(err);return}
+  if(String(cu.id).startsWith('central_')&&window.KlasoraFirebase){
+   try{await KlasoraFirebase.completeFirstLoginPassword(n1,String(cu.id).slice(8));}
+   catch(e2){toast(String(e2&&e2.code||'')==='auth/requires-recent-login'?'For security, sign out, sign in again, then change your password.':String(e2&&e2.message||'Password could not be saved. Try again.'));return}
+  }
+  const err2=changePassword(cu,cur,n1,n2,forced);if(err2){toast(err2);return}
+  closePw();toast('Password saved.');})();}});
 $('pfChangePw').onclick=()=>{closeProfile();openPwModal(false);};
 
 /* ----- administrator: parent login details + reset ----- */
