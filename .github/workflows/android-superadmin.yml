@@ -9,6 +9,7 @@ on:
       - 'klasora-icon.svg'
       - 'capacitor.config.json'
       - 'package.json'
+      - 'assets/**'
       - '.github/workflows/android-superadmin.yml'
 
 jobs:
@@ -38,6 +39,7 @@ jobs:
       - name: Add and sync Android project
         run: |
           npx cap add android
+          npx @capacitor/assets generate --android
           npx cap sync android
 
       - name: Build debug APK
