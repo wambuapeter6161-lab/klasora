@@ -1,0 +1,42 @@
+name: Build School System (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'school-system/**'
+      - 'school-desktop/**'
+      - '.github/workflows/windows-school.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Copy school system into the desktop app
+        shell: bash
+        run: |
+          mkdir -p school-desktop/app school-desktop/build
+          cp school-system/index.html school-system/app.js school-system/style.css school-desktop/app/
+          cp school-system/klasora-icon.svg school-system/klasora-192.png school-system/klasora-512.png school-system/klasora.ico school-system/manifest.webmanifest school-desktop/app/
+          cp school-system/klasora.ico school-desktop/build/icon.ico
+
+      - name: Install dependencies
+        working-directory: school-desktop
+        run: npm install
+
+      - name: Build Windows installer
+        working-directory: school-desktop
+        run: npx electron-builder --win --publish never
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: klasora-school-windows
+          path: school-desktop/dist/*.exe
