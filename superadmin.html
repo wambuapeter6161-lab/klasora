@@ -77,7 +77,7 @@
       <div class="page-intro"><div><h2>Add School</h2><p>Register a school and set its administrator's temporary password. Firebase Authentication creates the administrator login. The temporary password is never saved in Firestore.</p></div></div>
       <div class="panel form-panel narrow">
         <form id="schoolForm">
-          <label>School code</label><input id="schoolCode" required maxlength="24" pattern="[A-Za-z0-9-]+" inputmode="text" autocapitalize="characters" placeholder="e.g. GFA001 or 123456789">
+          <label>School code</label><input id="schoolCode" required maxlength="24" pattern="[A-Za-z0-9-]+" inputmode="text" autocapitalize="characters" readonly placeholder="Auto: KLS-001">
           <label>School name</label><input id="schoolName" required placeholder="Full registered school name">
           <label>Administrator's full name</label><input id="adminName" required placeholder="Administrator name">
           <label>Administrator's email</label><input id="adminEmail" required type="email" placeholder="admin@school.ac.ke">
@@ -140,7 +140,7 @@
     <div class="modal-actions" id="sheetActions"></div>
   </div>
 </div>
-<script type="module" src="superadmin.js?v=12"></script>
+<script type="module" src="superadmin.js?v=13"></script>
 <script>(function(){var a=document.getElementById("app"),s=document.getElementById("sidebar"),b=document.getElementById("menuBtn"),c=document.getElementById("scrim"),mq=window.matchMedia("(max-width:1100px),(max-height:520px)");function set(o){s.classList.toggle("open",o);c.classList.toggle("show",o)}b.addEventListener("click",function(){if(mq.matches)set(!s.classList.contains("open"));else a.classList.toggle("side-hidden")});c.addEventListener("click",function(){set(false)});s.addEventListener("click",function(e){if(mq.matches&&(e.target.closest(".nav")||e.target.closest("#logout")))set(false)});window.closeSide=function(){set(false);if(!mq.matches)a.classList.add("side-hidden")}})();</script>
 </body>
 </html>

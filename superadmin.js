@@ -34,6 +34,7 @@ const ls={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:
 let authEmail='';
 const TIERS=['Starter','Professional','Enterprise'];
 const pad=n=>String(n).padStart(2,'0');
+const nextCode=()=>'KLS-'+String(read().reduce((m,s)=>{const x=/^KLS-(\d+)$/.exec(String(s.code||'').toUpperCase());return x?Math.max(m,+x[1]):m},0)+1).padStart(3,'0');
 const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 const today=()=>iso(new Date());
 function addMonths(s,n){const [y,m,d]=s.split('-').map(Number);const t=new Date(y,m-1+n,1);const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();t.setDate(Math.min(d,last));return iso(t)}
@@ -65,13 +66,50 @@ async function syncProfileDown(){try{const s=await getDoc(profRef());if(s.exists
 async function syncProfileUp(){try{await setDoc(profRef(),{profile:profile(),photo:photo||'',updatedAt:new Date().toISOString()});return true}catch(e){return false}}
 const fnErr=e=>{const c=String(e&&e.code||''),m=String(e&&e.message||'');if(c==='functions/not-found'||(c==='functions/internal'&&m.toLowerCase()==='internal')||/failed to fetch/i.test(m))return'The Cloud Functions are not reachable. Deploy the functions folder first (see README).';if(c==='functions/unauthenticated')return'Your session expired. Sign in again.';return m||'Something went wrong. Please try again.'};
 const acctText=s=>s.tempPassword?'Legacy: password not secured':s.adminUid?(s.mustChangePassword?'Created · must change password':'Created · active'):'Not created';
+function renderLegacy(){const n=read().filter(s=>s.tempPassword).length,p=$('legacyPanel');if(!p)return;p.classList.toggle('hidden',!n);if(n)$('legacyText').textContent=n+(n===1?' school record still holds':' school records still hold')+' a readable temporary password in Firestore.'}
+let paymentsCache=[],payErr=false;
+async function loadPayments(){try{const s=await getDocs(query(collection(db,'payments'),orderBy('paidAt','desc'),limit(5000)));paymentsCache=s.docs.map(d=>({id:d.id,...d.data()}));payErr=false}catch(e){paymentsCache=[];payErr=true}renderRevenueChart();if(!$('page-reports').classList.contains('hidden'))renderReports()}
+const niceMax=v=>{if(v<=0)return 1000;const p=Math.pow(10,Math.floor(Math.log10(v))),n=v/p;return(n<=1?1:n<=2?2:n<=5?5:10)*p};
+const abbr=n=>n>=1e6?+(n/1e6).toFixed(2)+'M':n>=1e3?+(n/1e3).toFixed(2)+'k':String(+n.toFixed(2));
+function renderRevenueChart(){const now=new Date(),ms=[];for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);ms.push({key:d.getFullYear()+'-'+pad(d.getMonth()+1),label:d.toLocaleDateString('en-KE',{month:'short'}),total:0})}
+paymentsCache.forEach(p=>{const m=ms.find(x=>x.key===String(p.paidAt||'').slice(0,7));if(m)m.total+=Number(p.amount||0)});
+const grand=ms.reduce((n,m)=>n+m.total,0),max=niceMax(Math.max(...ms.map(m=>m.total))),X=i=>8+i*(602/5),Y=v=>192-(v/max)*180;
+$('chartY').innerHTML=[5,4,3,2,1,0].map(i=>'<span>'+abbr(max*i/5)+'</span>').join('');
+$('chartLine').setAttribute('d',ms.map((m,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(m.total).toFixed(1)).join(' '));
+$('chartDots').innerHTML=ms.map((m,i)=>'<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(m.total).toFixed(1)+'" r="4"><title>'+m.label+': '+money(m.total)+'</title></circle>').join('');
+$('chartX').innerHTML=ms.map(m=>'<span>'+m.label+'</span>').join('');
+$('chartSvg').setAttribute('aria-label','Revenue recorded per month: '+ms.map(m=>m.label+' '+money(m.total)).join(', '));
+$('chartNote').textContent=payErr?'Payment history could not be loaded. Check the Firestore rules for the payments collection.':!paymentsCache.length?'No payments recorded yet. Save a subscription with "Record this amount as a payment" ticked and it will appear here.':'Payments recorded in the last 6 months: '+money(grand)+'.'}
+function sumReported(a,f){const r=a.filter(s=>s[f]!==undefined&&s[f]!==null&&s[f]!==''&&Number.isFinite(Number(s[f])));return{n:r.length,total:r.reduce((n,s)=>n+Number(s[f]),0)}}
+function renderDemographics(a){const st=sumReported(a,'studentCount'),sf=sumReported(a,'staffCount'),fmt=(r)=>r.n?r.total.toLocaleString('en-KE'):'—',any=st.n||sf.n;$('demoStudents').textContent=fmt(st);$('demoStaff').textContent=fmt(sf);$('demoUsers').textContent=any?(st.total+sf.total).toLocaleString('en-KE'):'—';$('demoNote').textContent=any?Math.max(st.n,sf.n)+' of '+a.length+' schools have reported their headcounts.':'No school has reported headcounts yet. They appear when school apps call reportSchoolCounts.'}
+let selectedId=null;
+const defaultProfile={name:'Platform Owner',email:'owner@willbrodlabs.com',company:'Willbrod Labs',phone:''};
+const profile=()=>{let s={};try{s=JSON.parse(ls.get(PROFILE)||'{}')}catch(e){}return{...defaultProfile,email:authEmail||defaultProfile.email,...s}};
+function getSchool(id){return read().find(s=>s.id===id)}
+async function saveSchool(updated){
+  const {id,...data}=updated;delete data.tempPassword;
+  await updateDoc(doc(db,'schools',id),data);
+  const i=schoolsCache.findIndex(s=>s.id===id);
+  if(i>=0) schoolsCache[i]=updated;
+}
+function statList(kind){const a=read().slice().reverse();const T={all:['Registered schools','Every school you have registered',()=>true],active:['Active schools','Schools currently active',isLive],paused:['Paused subscriptions','Schools whose access is paused',s=>s.subscriptionStatus==='Paused'],value:['Subscription value','Active subscriptions and their monthly fees',isLive]}[kind];if(!T)return;const list=a.filter(T[2]);let body='<p class="sheet-note">'+T[1]+'. Tap a school to see its details.</p>';
+if(kind==='value')body+=`<div class="sheet-total"><small>TOTAL MONTHLY VALUE</small><b>${money(list.reduce((n,s)=>n+Number(s.monthlyFee||0),0))}</b></div>`;
+body+=list.length?'<div class="school-list">'+list.map(s=>`<div class="school-row" data-details="${safe(s.id)}"><div class="school-info"><b>${safe(s.name)}</b><small>${safe(s.code)} · ${safe(s.adminName)}</small><small>${kind==='value'?`${safe(s.plan||'Starter')} · ${money(s.monthlyFee||0)} / month · `:''}${statusTag(s)}</small></div><button type="button" class="btn soft" data-details="${safe(s.id)}">Details</button></div>`).join('')+'</div>':`<div class="empty">No schools here yet.${kind==='all'?'<br><br><button type="button" class="btn gold-btn" data-register="1">＋ Register a School</button>':''}</div>`;
+openSheet('OVERVIEW',T[0],body,[{label:'Close',cls:'primary',fn:closeSheet}])}
+const PHOTO='klasora_superadmin_photo';
+let photo=ls.get(PHOTO)||'';
+function applyPhoto(name){['avatar','profileAvatar'].forEach(id=>{const el=$(id);if(!el)return;if(photo){el.style.backgroundImage='url("'+photo+'")';el.textContent=''}else{el.style.backgroundImage='';el.textContent=initials(name)}});const r=$('photoRemove');if(r)r.style.display=photo?'block':'none'}
+function handlePhoto(file){const m=$('photoMsg');if(!file)return;if(!/^image\//.test(file.type)&&!/\.(jpe?g|png|webp|gif)$/i.test(file.name)){m.textContent='Choose a JPG, PNG or WebP image.';return}m.textContent='Processing photo…';const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{const w=img.naturalWidth,h=img.naturalHeight,s=Math.min(w,h),S=320,cv=document.createElement('canvas');cv.width=cv.height=S;const c=cv.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,S,S);c.drawImage(img,(w-s)/2,(h-s)/2,s,s,0,0,S,S);URL.revokeObjectURL(url);photo=cv.toDataURL('image/jpeg',0.82);ls.set(PHOTO,photo);applyPhoto(profile().name);m.textContent='Saving…';syncProfileUp().then(ok=>{m.textContent=ok?'Photo saved to your account.':'Photo saved on this device only.'})};img.onerror=()=>{URL.revokeObjectURL(url);m.textContent='That image could not be read. Try a JPG or PNG.'};img.src=url}
+function renderProfile(){const p=profile();$('profileName').value=p.name;$('profileEmail').value=p.email;$('profileCompany').value=p.company;$('profilePhone').value=p.phone;$('profilePreviewName').textContent=p.name;$('profilePreviewEmail').textContent=p.email;$('chipName').textContent=(p.name||'').split(' ')[0]||'Super Admin';applyPhoto(p.name);if(!$('page-overview').classList.contains('hidden'))$('pageTitle').textContent=greeting()}
+function details(id){const s=getSchool(id);if(!s)return;selectedId=id;$('detailTitle').textContent=s.name;$('detailContent').innerHTML=`<div class="detail-grid">
+${[['SCHOOL NAME',s.name],['SCHOOL CODE',s.code],['ADMINISTRATOR NAME',s.adminName],['ADMINISTRATOR EMAIL',s.adminEmail],['SCHOOL P.O. BOX',s.poBox],['REGISTRATION DATE',s.createdAt?new Date(s.createdAt).toLocaleString():'Not recorded'],['SCHOOL STATUS',s.status||'Active'],['SUBSCRIPTION STATUS',s.subscriptionStatus||'Active'],['SUBSCRIPTION PLAN',s.plan||'Starter'],['MONTHLY FEE',money(s.monthlyFee||0)],['SUBSCRIBED ON',fmtD(s.subscriptionStart)],['EXPIRY DATE',fmtD(s.renewalDate)],['ADMIN LOGIN ACCOUNT',acctText(s)]].map(([k,v])=>`<div class="detail-item"><small>${safe(k)}</small><b>${safe(v||'Not provided')}</b></div>`).join('')}</div>`;$('detailModal').classList.remove('hidden')}
 function showReveal(email,pw){const b=$('pwReveal');b.innerHTML='<b>Administrator account created for '+safe(email)+'.</b><br>Give them this temporary password now. It is not stored anywhere and cannot be shown again. They must change it when they first sign in.<div class="kv pw"><small>Temporary password</small><b>'+safe(pw)+'</b><button type="button" class="copy-btn" data-copy="'+safe(pw)+'">Copy</button></div>';b.classList.remove('hidden')}
 function hideReveal(){const b=$('pwReveal');if(b){b.innerHTML='';b.classList.add('hidden')}}
 function resetPw(id){const s=getSchool(id);if(!s)return;openSheet('SECURITY','Password reset unavailable on Spark','<p class=\"sheet-note\">Firebase Spark does not provide a trusted server function for the Super Admin to reset another user’s password. The administrator must use the password-reset email option, or this feature can be added when a trusted backend is available.</p>',[{label:'Close',cls:'primary',fn:closeSheet}]);}
 function initials(s){return String(s||'K').trim().split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase()}
 function statusTag(s){return s.subscriptionStatus==='Paused'?'<span class="tag paused">Subscription paused</span>':`<span class="tag">${safe(s.status||'Active')}</span>`}
 const TITLES={schools:'Registered Schools',addschool:'Add School',subscriptions:'Plans & Subscriptions',profile:'My Profile',backup:'Backup Data',reports:'Reports'};
-function showPage(page,navEl){document.querySelectorAll('.page').forEach(x=>x.classList.add('hidden'));$('page-'+page).classList.remove('hidden');const navs=[...document.querySelectorAll('.nav[data-page]')];const hit=navEl&&navEl.dataset&&navEl.dataset.page===page?navEl:navs.find(x=>x.dataset.page===page);navs.forEach(x=>x.classList.toggle('active',x===hit));$('pageTitle').textContent=page==='overview'?greeting():(TITLES[page]||'Klasora');if(page==='profile')renderProfile();if(page==='backup')renderBackup();if(page==='reports')renderReports();if(page==='addschool'&&!$('adminTemp').value)$('adminTemp').value=genPw();if(page!=='addschool')hideReveal();window.scrollTo(0,0);renderAll()}
+function showPage(page,navEl){document.querySelectorAll('.page').forEach(x=>x.classList.add('hidden'));$('page-'+page).classList.remove('hidden');const navs=[...document.querySelectorAll('.nav[data-page]')];const hit=navEl&&navEl.dataset&&navEl.dataset.page===page?navEl:navs.find(x=>x.dataset.page===page);navs.forEach(x=>x.classList.toggle('active',x===hit));$('pageTitle').textContent=page==='overview'?greeting():(TITLES[page]||'Klasora');if(page==='profile')renderProfile();if(page==='backup')renderBackup();if(page==='reports')renderReports();if(page==='addschool'&&!$('adminTemp').value)$('adminTemp').value=genPw();if(page==='addschool')$('schoolCode').value=nextCode();if(page!=='addschool')hideReveal();window.scrollTo(0,0);renderAll()}
 function renderAll(){const a=read(),live=a.filter(isLive);$('statTotal').textContent=a.length;$('statActive').textContent=live.length;$('statValue').textContent=money(live.reduce((n,s)=>n+Number(s.monthlyFee||0),0));$('directoryCount').textContent=a.length;renderSchoolRows(a.slice().reverse(),'schoolDirectory');renderSubscriptions(a);renderDashboardPanels(a)}
 function renderDashboardPanels(a){$('demoSchools').textContent=a.length;renderDemographics(a);$('protocolSchoolCount').textContent=a.length+' schools loaded';const row=(items,kind)=>items.length?items.slice(0,5).map((s,i)=>`<div class="compact-row" data-details="${safe(s.id)}"><b>${i+1}.</b><div><strong>${safe(s.name)}</strong><small>${safe(s.adminEmail||s.code||'School record')}</small></div><span class="compact-tag${kind==='expiring'&&daysLeft(s.renewalDate)<=7?' warn':''}">${safe(tagText(s,kind))}</span></div>`).join(''):'<div class="compact-empty">'+emptyText(kind)+'</div>';$('largestSchools').innerHTML=row(PANELS.largest[2](a),'largest');$('newRegistrations').innerHTML=row(PANELS.new[2](a),'new');$('expiringSchools').innerHTML=row(PANELS.expiring[2](a),'expiring')}
 function renderSchoolRows(list,target){const q=$('schoolSearch').value.trim().toLowerCase();const f=list.filter(s=>!q||(s.name+' '+s.code+' '+s.adminName+' '+s.adminEmail).toLowerCase().includes(q));$(target).innerHTML=f.length?f.map(schoolCard).join(''):'<div class="empty">No schools found.</div>'}
@@ -104,14 +142,15 @@ $('loginForm').addEventListener('submit',async e=>{
       await signOut(auth);
       throw new Error('This Firebase account is not authorized as the Klasora Super Admin.');
     }
-    $('loginScreen').classList.add('hidden');
-    $('app').classList.remove('hidden');
     authEmail=credential.user.email||'';
     $('loginTime').textContent=new Date().toLocaleString();
     renderProfile();
     await syncProfileDown();
     renderProfile();
     await loadSchools();
+    $('loginScreen').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    loadPayments();
     error.textContent='';
   }catch(err){
     error.textContent=err.code==='auth/invalid-credential'||err.code==='auth/wrong-password'||err.code==='auth/user-not-found'
@@ -134,11 +173,12 @@ $('schoolForm').addEventListener('submit',async e=>{
   const email=$('adminEmail').value.trim().toLowerCase();
   const pw=$('adminTemp').value;
   const poBox=$('schoolBox').value.trim();
-  if(!/^[A-Z0-9-]{1,24}$/.test(code)){msg('School code must contain letters, numbers or hyphens.',1);return}
+  if(!/^KLS-\d{3,}$/.test(code)){msg('School code must look like KLS-001.',1);return}
   if(!name||!adminName||!poBox){msg('Complete all school and administrator details.',1);return}
   if(read().some(s=>String(s.code||'').trim().toUpperCase()===code)){msg('That school code is already registered.',1);return}
   if(read().some(s=>String(s.adminEmail||'').toLowerCase()===email)){msg('That administrator email is already registered in Klasora.',1);return}
   if(pw.length<8){msg('Temporary password must be at least 8 characters.',1);return}
+  if(!auth.currentUser||auth.currentUser.uid!==SUPER_ADMIN_UID){msg('Your Super Admin session has ended. Reload and sign in again.',1);return}
   const button=$('schoolForm').querySelector('button[type="submit"],button:not([type])');
   if(button)button.disabled=true;
   let createdUser=null;
@@ -157,12 +197,12 @@ $('schoolForm').addEventListener('submit',async e=>{
     schoolsCache.push({id:schoolRef.id,...record});
     msg('School registered and administrator login created.');
     showReveal(email,pw);
-    $('schoolForm').reset();$('adminTemp').value=genPw();
+    $('schoolForm').reset();$('adminTemp').value=genPw();$('schoolCode').value=nextCode();
     renderAll();
   }catch(err){
     if(createdUser){try{await deleteUser(createdUser)}catch(cleanupError){console.error('Could not roll back newly created administrator account',cleanupError)}}
     const code=err&&err.code;
-    const friendly=code==='auth/email-already-in-use'?'That email already has a Firebase Authentication account. Use a different email or resolve the existing account first.':code==='permission-denied'?'Firestore denied the registration. Check that the deployed rules allow only your Super Admin UID to create school records.':(err.message||'Registration failed.');
+    const friendly=code==='auth/email-already-in-use'?'That email already has a Firebase Authentication account. Use a different email or resolve the existing account first.':code==='permission-denied'?'Firestore denied the registration. The school code may already be in use, or the deployed rules differ from firestore.rules.':(err.message||'Registration failed.');
     msg('Could not register school: '+friendly,1);
   }finally{
     try{if(provisioningAuth.currentUser)await signOut(provisioningAuth)}catch(e){}
