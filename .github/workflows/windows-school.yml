@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p school-desktop/app school-desktop/build
-          cp school-system/index.html school-system/app.js school-system/style.css school-desktop/app/
+          cp school-system/index.html school-system/app.js school-system/firebase-auth.js school-system/style.css school-desktop/app/
           cp school-system/klasora-icon.svg school-system/klasora-192.png school-system/klasora-512.png school-system/manifest.webmanifest school-desktop/app/
           cp school-desktop/icon.ico school-desktop/app/klasora.ico
           cp school-desktop/icon.ico school-desktop/build/icon.ico
