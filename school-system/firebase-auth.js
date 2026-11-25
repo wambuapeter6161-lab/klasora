@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import { getAuth, sendPasswordResetEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
 import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -365,7 +365,13 @@ async function savePromotions(schoolId, entries, updates) {
   }
 }
 
-const api = { signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, stillActive, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Sends a password reset link. Never reveals whether the email has an account.
+async function resetPassword(email) {
+  try { await sendPasswordResetEmail(auth, String(email).trim().toLowerCase()); }
+  catch (e) { if (e.code === "auth/network-request-failed" || e.code === "auth/too-many-requests") throw e; }
+}
+
+const api = { resetPassword, signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, stillActive, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
 
 // Everything read from the database is cleaned of markup characters before any screen can use it,
 // so text typed by one user (a name, a message, a payment reference) can never run as code for another.

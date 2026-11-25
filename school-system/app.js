@@ -156,6 +156,13 @@ function getModule(page){
 /* ---------- Login screen ---------- */
 function showLoginMsg(text,type){const el=$('loginMsg');if(!text){el.classList.add('hidden');return}el.textContent=text;el.className='login-msg'+(type==='info'?' info':'');}
 function getLock(){try{return JSON.parse(store.get(LOCK_KEY))||{fails:0,until:0}}catch(e){return{fails:0,until:0}}}
+$('forgotPw').onclick=async()=>{
+ const email=$('loginEmail').value.trim().toLowerCase();
+ if(!/^\S+@\S+\.\S+$/.test(email)){showLoginMsg('Type your email above first, then tap Forgot password.');return}
+ if(!window.KlasoraFirebase){showLoginMsg('Still connecting. Try again in a moment.');return}
+ try{await KlasoraFirebase.resetPassword(email);showLoginMsg('If that email has an account, a reset link has been sent. Check your inbox and spam folder.','info');}
+ catch(e){showLoginMsg(e.code==='auth/too-many-requests'?'Too many requests. Wait a few minutes and try again.':'No internet connection. Try again.');}
+};
 $('pwToggle').onclick=()=>{const p=$('loginPass'),show=p.type==='password';p.type=show?'text':'password';$('pwToggle').textContent=show?'Hide':'Show';};
 /* ---------- Students: saved to the school's Firestore records ---------- */
 async function saveStudentsRemote(list){
@@ -199,7 +206,7 @@ async function loadResultsRemote(r){
    if(x.gen)RES.gen[k+'|'+x.cls]=x.gen;
   });
   if(r.profile.role!=='parent'){
-   const m=await KlasoraFirebase.loadMeta(r.schoolId);
+   const m=await KlasoraFirebase.loadMeta(r.schoolId,r.profile.role==='admin'?['config','stusubj']:r.profile.role==='teacher'?['config','stusubj']:['config']);
    if(m.config){if(m.config.subj)SUBJ={added:m.config.subj.added||{},removed:m.config.subj.removed||{}};if(Array.isArray(m.config.ts))TS=m.config.ts;}
    if(m.stusubj&&typeof m.stusubj==='object')STUSUBJ=m.stusubj;
   }
@@ -339,7 +346,7 @@ function applyRole(){
  document.querySelectorAll('#sidebar .user-avatar,.top-user .user-avatar').forEach(a=>paintAvatar(a,u));
  document.querySelector('.user-mini strong').textContent=u.name;document.querySelector('.top-user strong').textContent=welcomeName(u);
  document.querySelector('.user-mini small').textContent=u.title;updateBell();
-  $('userMenu').innerHTML=`<strong>${u.name}</strong><small><span class="role-pill">${r.label}</span><br><span style="display:inline-block;margin-top:6px">@${u.username}</span></small><button class="btn btn-primary" id="menuProfile">My Profile</button><button class="btn btn-light" id="menuSignOut" style="margin-top:8px">Sign out</button>`;
+  $('userMenu').innerHTML=`<strong>${escH(u.name)}</strong><small><span class="role-pill">${r.label}</span><br><span style="display:inline-block;margin-top:6px">@${u.username}</span></small><button class="btn btn-primary" id="menuProfile">My Profile</button><button class="btn btn-light" id="menuSignOut" style="margin-top:8px">Sign out</button>`;
 }
 
 /* ---------- Role dashboard (non-admin) ---------- */
@@ -353,7 +360,7 @@ function renderRoleDashboard(){
  <div class="dashboard-grid lower-grid">
   <article class="panel"><div class="panel-heading"><div><h3>Quick Access</h3><p>Sections available to you</p></div></div><div class="quick-grid">${links}</div></article>
   <article class="panel"><div class="panel-heading"><div><h3>Your Access</h3><p>What this role can do</p></div><span class="role-pill">${r.label}</span></div>
-   <div class="access-row"><span>Signed in as</span><span>${u.name}</span></div>
+   <div class="access-row"><span>Signed in as</span><span>${escH(u.name)}</span></div>
    <div class="access-row"><span>Can view</span><span>${viewList}</span></div>
    <div class="access-row"><span>Can add / edit</span><span>${addList}</span></div>
    <div class="access-row"><span>Export reports</span><span>${r.export?'Yes':'No'}</span></div>
@@ -742,7 +749,7 @@ function childCardsHtml(u){
  const kids=childrenOf(u),pal=['blue','teal','purple','orange'];
  if(!kids.length)return'<div class="panel"><div class="panel-heading"><div><h3>My Children</h3><p>No learners are linked to this account yet. Please contact the school office.</p></div></div></div>';
  return`<div class="section-title">MY CHILDREN</div><div class="child-grid">`+kids.map((k,i)=>{const g=G[pal[i%4]],r=childRecords(k);
-  return`<button type="button" class="child-card" data-child="${k.adm}" style="--g1:${g[0]};--g2:${g[1]};--glow:${g[1]}59"><span class="child-avatar">${schoolInitials(k.name)}</span><strong>${k.name}</strong><small>${k.cls} · ${k.adm}</small>${promoBadge(k.adm)}<div class="child-stats"><span>Attendance<b>${r.rate===null?'—':r.rate+'%'}</b></span><span>Fee balance<b>${money(r.fee.bal)}</b></span></div><span class="ms-tap">View all details ›</span></button>`;}).join('')+'</div>';
+  return`<button type="button" class="child-card" data-child="${k.adm}" style="--g1:${g[0]};--g2:${g[1]};--glow:${g[1]}59"><span class="child-avatar">${schoolInitials(k.name)}</span><strong>${escH(k.name)}</strong><small>${k.cls} · ${k.adm}</small>${promoBadge(k.adm)}<div class="child-stats"><span>Attendance<b>${r.rate===null?'—':r.rate+'%'}</b></span><span>Fee balance<b>${money(r.fee.bal)}</b></span></div><span class="ms-tap">View all details ›</span></button>`;}).join('')+'</div>';
 }
 function openChild(adm){openLearnerProfile(adm);}
 document.addEventListener('click',e=>{const c=e.target.closest('.child-card[data-child]');if(c)openChild(c.dataset.child);});
@@ -971,7 +978,7 @@ function renderRegister(){
  const rows=list.map((s,i)=>{let p=0,a=0;
   const cells=dayInfo.map(x=>{const v=regGet(regY,regM,s.adm,x.d);if(v==='P')p++;else if(v==='A')a++;const off=future(x.d)||(x.wk&&!regWeekend);
    return`<td class="rc${teacher?'':' ro'}${v==='P'?' p':v==='A'?' a':''}${off?' off':''}${x.wk?' wk':''}${x.today?' today':''}${x.ws?' wkstart':''}" data-adm="${s.adm}" data-d="${x.d}"><span class="rd">${x.d}</span><span class="rm">${v==='P'?'✅':v==='A'?'❌':''}</span></td>`;}).join('');
-  return`<tr><td class="rnum">${i+1}</td><td class="rname">${s.name}</td>${cells}<td class="rt rtp">${p}</td><td class="rt rta">${a}</td><td class="rt">${p+a?Math.round(p/(p+a)*100)+'%':'—'}</td></tr>`;}).join('');
+  return`<tr><td class="rnum">${i+1}</td><td class="rname">${escH(s.name)}</td>${cells}<td class="rt rtp">${p}</td><td class="rt rta">${a}</td><td class="rt">${p+a?Math.round(p/(p+a)*100)+'%':'—'}</td></tr>`;}).join('');
  const tot=(v)=>dayInfo.map(x=>{const c=regCounts(regY,regM,x.d,list);const n=v==='P'?c.p:c.a;return`<td class="rf${x.wk?' wk':''}">${c.marked?n:''}</td>`;}).join('');
  $('registerPage').innerHTML=`
  <div class="reg-banner"><button class="reg-nav" data-reg="prev" aria-label="Previous month">‹</button>
@@ -1145,7 +1152,7 @@ function generateResults(){
 function renderResultsView(){
  const k=exKey(),r=buildClassResults(k,TEACHER_CLASS),ct=clsTeacher(TEACHER_CLASS);
  const cell=x=>`<td><span class="lv ${levelCode(x)}">${levelCode(x)}</span></td>`;
- $('examsPage').innerHTML=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">CBC RESULTS</span><small>${ct.name} · Term ${exTerm} ${exYear} · ${examLabel(exType)}</small></div></div>
+ $('examsPage').innerHTML=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">CBC RESULTS</span><small>${escH(ct.name)} · Term ${exTerm} ${exYear} · ${examLabel(exType)}</small></div></div>
  <div class="reg-tools"><div class="reg-btns"><button class="reg-btn" data-ex="back">‹ Back to examinations</button><button class="reg-btn" data-ex="excel">⬇ Excel</button><button class="reg-btn" data-ex="print">Print</button></div></div>
  <div class="cbc-key"><div class="cbc-key-h"><span>Code</span><span>Meaning</span></div>${Object.keys(LEVEL_NAME).map(c=>`<div><span class="lv ${c}">${c}</span><span>${LEVEL_NAME[c]}</span></div>`).join('')}</div>
  <div class="section-title">CLASS RESULTS (${r.n} LEARNER${r.n===1?'':'S'})</div>
@@ -1417,7 +1424,7 @@ $('teacherForm').addEventListener('submit',e=>{
 /* ----- administrator: Add Class Teacher page ----- */
 let ctReplaceId='';
 function openIssued(o){pdTemp=o.pass;pdCopy=o.copy;
- $('pdModal').innerHTML=`<div class="modal-head"><div><h3>${escH(o.title)}</h3><p>${escH(o.sub)}</p></div><button class="modal-close" data-pd="close">×</button></div>${sec('GIVE THE TEACHER THESE DETAILS',o.rows)}<div class="pd-temp"><small>PASSWORD · SHOWN ONCE</small><strong>${escH(o.pass)}</strong><div class="bk-actions"><button type="button" class="reg-btn" data-pd="copy">Copy all details</button></div></div><div class="bk-note warn">${o.note}</div>`;
+ $('pdModal').innerHTML=`<div class="modal-head"><div><h3>${escH(o.title)}</h3><p>${escH(o.sub)}</p></div><button class="modal-close" data-pd="close">×</button></div>${sec('GIVE THE TEACHER THESE DETAILS',o.rows)}<div class="pd-temp"><small>PASSWORD · SHOWN ONCE</small><strong>${escH(o.pass)}</strong><div class="bk-actions"><button type="button" class="reg-btn" data-pd="copy">Copy all details</button></div></div><div class="bk-note warn">${escH(o.note)}</div>`;
  $('pdBackdrop').classList.remove('hidden');}
 function issuedFor(u,pass,title,note){return{title,sub:u.name,pass,copy:'Username: '+u.username+'\nPassword: '+pass+'\nClass: '+u.className,rows:[['Username',u.username],['Class',u.className],['Sign in at','New class teacher? Activate your account']],note};}
 function renderClassTeachers(){
@@ -2542,7 +2549,9 @@ async function refreshInbox(){
   INBOX=(await KlasoraFirebase.loadMessages(r)).map(m=>({...m,role:currentUser.role}));
   if(['admin','accountant','parent'].includes(currentUser.role)){const pn=await KlasoraFirebase.loadPayNotes(r);PAYNOTES=pn;pn.forEach(n=>{PN_SNAP[n.id]=JSON.stringify(n)});}
   updateBell();
- }catch(e){}
+ }catch(e){
+  if(e&&e.code==='permission-denied'){const ok=await KlasoraFirebase.stillActive(currentUser.schoolId);if(!ok)signOut('Your account or school is no longer active. Please contact your school administrator or Klasora support.');}
+ }
 }
 setInterval(refreshInbox,180000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshInbox();});
