@@ -238,7 +238,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -392,7 +392,7 @@ $('globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'&&currentUser
 $('todayLabel').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).toUpperCase();
 
 /* ================= v1.3: School profile (name + logo) ================= */
-const SCHOOL_KEY='edutrack_school',DEFAULT_SCHOOL={name:'Greenfield Academy',type:'Primary School',motto:'',logo:'',phones:[]};
+const SCHOOL_KEY='edutrack_school',DEFAULT_SCHOOL={name:'Klasora School System',type:'School',motto:'',logo:'',phones:[]};
 function getSchool(){try{return{...DEFAULT_SCHOOL,...(JSON.parse(store.get(SCHOOL_KEY))||{})}}catch(e){return{...DEFAULT_SCHOOL}}}
 function schoolInitials(n){const w=n.trim().split(/\s+/).filter(Boolean);return((w[0]||'S')[0]+(w[1]?w[1][0]:(w[0]||'S')[1]||'')).toUpperCase();}
 function paintLogo(el,s){el.textContent='';el.classList.toggle('has-img',!!s.logo);if(s.logo){const i=document.createElement('img');i.src=s.logo;i.alt='';el.appendChild(i);}else el.textContent=schoolInitials(s.name);}
@@ -716,7 +716,8 @@ function createParentAccount(schoolCode,name,upi){
  refreshUsersModule();return{user,kids:g.kids.length};
 }
 /* ----- register a new student (used by the registration form) ----- */
-function nextAdm(){const y=new Date().getFullYear(),nums=allStudents().filter(s=>s.adm.startsWith('GFA-'+y+'-')).map(s=>parseInt(s.adm.slice(-4),10));return'GFA-'+y+'-'+String((nums.length?Math.max(...nums):0)+1).padStart(4,'0');}
+function admPrefix(){return(currentUser&&currentUser.schoolCode)||'ADM'}
+function nextAdm(){const y=new Date().getFullYear(),nums=allStudents().filter(s=>s.adm.startsWith(admPrefix()+'-'+y+'-')).map(s=>parseInt(s.adm.slice(-4),10));return admPrefix()+'-'+y+'-'+String((nums.length?Math.max(...nums):0)+1).padStart(4,'0');}
 function registerStudent(d){
  const phone=normPhone(d.phone);
  if(wordCount(d.name)<2)return{error:"Enter the learner's full name (first and last name)."};
@@ -1661,9 +1662,9 @@ function applyDataset(ds,recs,mode){
  const res={added:0,dups:0};
  if(ds==='students'){
   const ex=mode==='replace'?[]:allStudents(),seenAdm=new Set(ex.map(s=>s.adm)),seenKey=new Set(ex.map(s=>normName(s.name)+'|'+s.cls+'|'+s.gphone)),out=[],y=new Date().getFullYear();
-  let max=Math.max(0,...ex.filter(s=>s.adm.startsWith('GFA-'+y+'-')).map(s=>parseInt(s.adm.slice(-4),10)||0));
+  let max=Math.max(0,...ex.filter(s=>s.adm.startsWith(admPrefix()+'-'+y+'-')).map(s=>parseInt(s.adm.slice(-4),10)||0));
   recs.forEach(r=>{const key=normName(r.name)+'|'+r.cls+'|'+r.phone;if((r.adm&&seenAdm.has(r.adm))||seenKey.has(key)){res.dups++;return}
-   const x={...r,date:new Date().toISOString().slice(0,10)};if(!x.adm){max++;x.adm='GFA-'+y+'-'+String(max).padStart(4,'0');}seenAdm.add(x.adm);seenKey.add(key);out.push(x);});
+   const x={...r,date:new Date().toISOString().slice(0,10)};if(!x.adm){max++;x.adm=admPrefix()+'-'+y+'-'+String(max).padStart(4,'0');}seenAdm.add(x.adm);seenKey.add(key);out.push(x);});
   if(mode==='replace'){HIDE.students=true;EXTRA=out;}else EXTRA=[...EXTRA,...out];res.added=out.length;
   rebuildStudents();saveStudentsRemote(out);
  }else{
@@ -2086,6 +2087,22 @@ $('pdModal').addEventListener('click',e=>{
   const m=modules[k];if(m.rows)m.rows.length=0;if(m.stats)m.stats.forEach(x=>{x[1]=zero(x[1]);});
  });
 })();
+/* ---------- Details panels and drill-downs: live data only, zero for a new school ---------- */
+(function clearSampleDetails(){
+ const none=()=>({sub:'No records yet for this school',sections:[['SUMMARY',[['Records','0']]]]});
+ Object.keys(MSD).forEach(k=>{if(k!=='classes')MSD[k]=MSD[k].map(()=>none);});
+ const L=o=>[['Lower Primary',String(o.lower)],['Upper Primary',String(o.upper)],['Junior School',String(o.junior)]];
+ MSD.students=[
+  ()=>{const n=stuNums();return{sub:'All enrolled learners',sections:[['BY LEVEL',L(n.b)],['BY GENDER',[['Female',String(n.female)],['Male',String(n.male)]]]]}},
+  ()=>{const n=stuNums();return{sub:'Learners admitted',sections:[['BY LEVEL',L(n.nw)]]}},
+  ()=>{const n=stuNums();return{sub:'Learners currently attending',sections:[['STATUS',[['Active',String(n.active)]]]]}}];
+ DETAILS.students=()=>{const n=stuNums();return{tone:'tone-blue',label:'Total Students',value:String(n.total),title:'Student Details',sub:'Current enrolment',go:'students',goLabel:'Open Students',body:sec('BY LEVEL',L(n.b))+sec('STATUS',[['Active students',String(n.active)]])}};
+ DETAILS.staff=()=>{const t=USERS.filter(u=>u.role==='teacher').length;return{tone:'tone-purple',label:'Teaching Staff',value:String(t),title:'Staff Details',sub:'Teacher accounts in this school',go:'teachers',goLabel:'Open Staff',body:sec('STAFF',[['Teaching staff',String(t)]])}};
+ DETAILS.attendance=()=>({tone:'tone-green',label:"Today's Attendance",value:'0%',title:'Attendance Details',sub:'No register marked yet',go:'attendance',goLabel:'Open Attendance',body:sec('TODAY',[['Present','0'],['Absent','0'],['Late arrivals','0']])});
+ DETAILS.fees=()=>({tone:'tone-orange',label:'Fee Collection',value:'KSh 0',title:'Fee Collection Details',sub:'No payments recorded yet',go:'fees',goLabel:'Open Fees',body:sec('THIS TERM',[['Billed','KSh 0'],['Collected','KSh 0'],['Outstanding','KSh 0']])});
+ modules.settings.rows[0][1]=(currentUser&&currentUser.schoolName)||'';
+ const r=modules.reports;r.stats[1][1]='0';r.stats[2][1]='0';r.rows.forEach(x=>{x[2]='Not generated yet'});
+})();
 restoreSession();
 
 
@@ -2148,7 +2165,7 @@ function feeStruct(y){
 const termFee=(cls,t,y)=>(feeStruct(y)[gradeOf(cls)]||[0,0,0])[t-1]||0;
 function feeClassOf(s,y){const l=PROMO.log.filter(x=>x.adm===s.adm&&+x.year===y);return gradeOf(l.length&&l[l.length-1].from?l[l.length-1].from:s.cls);}
 function feeStartTerm(s,y){const x=EXTRA.find(e=>e.adm===s.adm);if(x&&!x.imp&&x.date){const d=new Date(x.date);if(d.getFullYear()>y)return 4;if(d.getFullYear()===y)return termOfMonth(d.getMonth());}return 1;}
-function feeInvoice(s,y){const fr=modules.fees.rows.find(r=>r[0]===s.name);if(fr&&fr[1]&&fr[1]!=='-')return fr[1];return/^GFA-/.test(s.adm)?'INV-'+s.adm.slice(4):'INV-'+y+'-'+s.adm;}
+function feeInvoice(s,y){const fr=modules.fees.rows.find(r=>r[0]===s.name);if(fr&&fr[1]&&fr[1]!=='-')return fr[1];return'INV-'+y+'-'+s.adm;}
 function feeSeed(s,y,start){
  if(y!==feeYear())return[0,0,0];
  const cls=feeClassOf(s,y),b=t=>start>t?0:termFee(cls,t,y),fr=modules.fees.rows.find(r=>r[0]===s.name);
