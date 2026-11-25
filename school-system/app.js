@@ -242,7 +242,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);await loadFeesRemote(r);
+ await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);await loadFeesRemote(r);await loadCommRemote(r);
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -283,7 +283,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;INBOX=[];PAYNOTES=[];ANN=[];STAFF=[];PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -1559,8 +1559,6 @@ const normLibStatus=v=>{const s=cleanTxt(v).toLowerCase();return!s||/avail|in/.t
 /* ===== Shule V3: staff and announcement records ===== */
 const STAFF_KEY='edutrack_staff',ANN_KEY='edutrack_announcements',ANN_AUD=['Parents','Teachers','Whole School'];
 let STAFF=[],ANN=[];
-try{const a=JSON.parse(store.get(STAFF_KEY));if(Array.isArray(a))STAFF=a.filter(x=>x&&x.id&&typeof x.name==='string'&&(x.type==='teaching'||x.type==='support'));}catch(e){STAFF=[];}
-try{const a=JSON.parse(store.get(ANN_KEY));if(Array.isArray(a))ANN=a.filter(x=>x&&x.id&&typeof x.title==='string'&&typeof x.message==='string'&&ANN_AUD.includes(x.audience));}catch(e){ANN=[];}
 BACKUP_KEYS.push(STAFF_KEY,ANN_KEY);
 
 /* ----- live (imported) figures ----- */
@@ -2013,7 +2011,7 @@ document.addEventListener('keydown',e=>{
    Announcements go to the inbox (message icon) of the chosen audience only. */
 let stArm='',stType='',annBusy=false;
 const stClean=s=>String(s==null?'':s).replace(/\s+/g,' ').trim();
-const saveStaff=()=>store.set(STAFF_KEY,JSON.stringify(STAFF)),saveAnn=()=>store.set(ANN_KEY,JSON.stringify(ANN));
+const saveStaff=()=>{saveMetaRemote('staff',STAFF);return true},saveAnn=()=>{saveMetaRemote('ann',ANN.slice(-200));return true};
 function annDate(iso){return new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
 const stZ=v=>v==null||String(v).trim()===''?'—':String(v);
 
@@ -2474,12 +2472,44 @@ function promoWaitHtml(){const u=currentUser;if(!u||u.role!=='teacher')return'';
 
 /* ================= v2.7: inbox, payment messages, Grade 9 summary, promotion catch-up ================= */
 let INBOX=[],PAYNOTES=[],fpNote='';
-try{INBOX=JSON.parse(store.get(INBOX_KEY))||[]}catch(e){INBOX=[]}
-try{PAYNOTES=JSON.parse(store.get(PAYNOTE_KEY))||[]}catch(e){PAYNOTES=[]}
 if(!Array.isArray(INBOX))INBOX=[];if(!Array.isArray(PAYNOTES))PAYNOTES=[];
-const saveInbox=()=>store.set(INBOX_KEY,JSON.stringify(INBOX.slice(-200))),savePayNotes=()=>store.set(PAYNOTE_KEY,JSON.stringify(PAYNOTES.slice(-300)));
+const saveInbox=()=>true,savePayNotes=()=>{syncPayNotes();return true};
+const PN_SNAP={};
+async function syncPayNotes(){
+ if(!currentUser)return;
+ for(const n of PAYNOTES){const j=JSON.stringify(n);if(PN_SNAP[n.id]===j)continue;
+  try{await KlasoraFirebase.savePayNote(currentUser.schoolId,n);PN_SNAP[n.id]=j;}
+  catch(e){toast(e.code==='permission-denied'?'You do not have permission to change this payment report.':'Payment report not saved. Check your internet and try again.');break;}}
+}
+function msgTokens(m){const t=[];if(m.role)t.push('role:'+m.role);(m.roles||[]).forEach(r=>t.push('role:'+r));if(m.phone)t.push('phone:'+m.phone);if(m.uid)t.push('uid:'+String(m.uid).replace(/^fb_/,''));return t;}
+async function sendMsgRemote(m){
+ const to=msgTokens(m);if(!to.length||!currentUser)return;
+ const docId=m.key?String(m.key).replace(/[^A-Za-z0-9_-]/g,'_'):m.id;
+ try{await KlasoraFirebase.sendMessage(currentUser.schoolId,docId,{...m,to});}catch(e){/* a failed notification must never block the main action */}
+}
+let _inboxTimer=null,_inboxAt=0;
+async function loadCommRemote(r){
+ INBOX=[];PAYNOTES=[];Object.keys(PN_SNAP).forEach(k=>delete PN_SNAP[k]);ANN=[];STAFF=[];
+ try{
+  INBOX=(await KlasoraFirebase.loadMessages(r)).map(m=>({...m,role:r.profile.role}));
+  PAYNOTES=await KlasoraFirebase.loadPayNotes(r);PAYNOTES.forEach(n=>{PN_SNAP[n.id]=JSON.stringify(n)});
+  if(r.profile.role==='admin'){const m=await KlasoraFirebase.loadMeta(r.schoolId,['ann','staff']);if(Array.isArray(m.ann))ANN=m.ann;if(Array.isArray(m.staff))STAFF=m.staff;}
+ }catch(e){setTimeout(()=>toast('Could not load messages ('+(e.code||'error')+').'),1700);}
+ _inboxAt=Date.now();
+}
+async function refreshInbox(){
+ if(!currentUser||Date.now()-_inboxAt<60000)return;
+ _inboxAt=Date.now();
+ try{const r={schoolId:currentUser.schoolId,user:{uid:currentUser.uid},profile:{role:currentUser.role,linkPhone:currentUser.linkPhone,children:currentUser.children}};
+  INBOX=(await KlasoraFirebase.loadMessages(r)).map(m=>({...m,role:currentUser.role}));
+  if(['admin','accountant','parent'].includes(currentUser.role)){const pn=await KlasoraFirebase.loadPayNotes(r);PAYNOTES=pn;pn.forEach(n=>{PN_SNAP[n.id]=JSON.stringify(n)});}
+  updateBell();
+ }catch(e){}
+}
+setInterval(refreshInbox,180000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshInbox();});
 const msgFor=(m,u)=>(m.role&&m.role===u.role)||(Array.isArray(m.roles)&&m.roles.includes(u.role))||(m.phone&&u.role==='parent'&&u.linkPhone===m.phone)||(m.uid&&m.uid===u.id);
-function pushMsg(m){m.id='m'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);m.date=new Date().toISOString();if(m.key)INBOX=INBOX.filter(x=>x.key!==m.key);INBOX.push(m);if(INBOX.length>200)INBOX=INBOX.slice(-200);saveInbox();if(currentUser)updateBell();return m;}
+function pushMsg(m){m.id='m'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);m.date=new Date().toISOString();if(m.key)INBOX=INBOX.filter(x=>x.key!==m.key);INBOX.push(m);if(INBOX.length>200)INBOX=INBOX.slice(-200);saveInbox();sendMsgRemote(m);if(currentUser)updateBell();return m;}
 function ago(iso){const sec=Math.max(0,(Date.now()-new Date(iso).getTime())/1000);if(sec<60)return'Just now';if(sec<3600)return Math.floor(sec/60)+' min ago';if(sec<86400)return Math.floor(sec/3600)+' h ago';if(sec<172800)return'Yesterday';return new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});}
 window.addEventListener('storage',e=>{if(e.key===INBOX_KEY){try{INBOX=JSON.parse(e.newValue)||[]}catch(x){}if(currentUser)updateBell();}if(e.key===PAYNOTE_KEY){try{PAYNOTES=JSON.parse(e.newValue)||[]}catch(x){}}});
 

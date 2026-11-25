@@ -225,7 +225,7 @@ async function saveResults(schoolId, entries) {
 // School-wide settings stored as small JSON documents (subjects, teacher subjects, learner subject choices)
 async function loadMeta(schoolId, keys) {
   const out = {};
-  for (const key of (keys || ["config", "stusubj", "feestr"])) {
+  for (const key of (keys || ["config", "stusubj", "feestr", "ann", "staff"])) {
     try {
       const s = await getDoc(doc(db, "schools", schoolId, "meta", key));
       if (s.exists()) out[key] = JSON.parse(s.data().json || "null");
@@ -270,4 +270,45 @@ async function reversePayment(schoolId, id) {
   await updateDoc(doc(db, "schools", schoolId, "payments", id), { reversed: true, reversedAt: serverTimestamp(), reversedBy: user.uid });
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Messages / notifications: addressed with tokens such as "role:teacher", "phone:0712345678", "uid:<id>"
+function myTokens(r) {
+  const t = ["role:" + r.profile.role, "uid:" + r.user.uid];
+  if (r.profile.role === "parent" && r.profile.linkPhone) t.push("phone:" + r.profile.linkPhone);
+  return t;
+}
+async function loadMessages(r) {
+  const col = collection(db, "schools", r.schoolId, "messages");
+  const parts = await Promise.all(myTokens(r).map(tok => getDocs(query(col, where("to", "array-contains", tok)))));
+  const byId = {};
+  parts.forEach(p => p.docs.forEach(d => { byId[d.id] = d.data(); }));
+  return Object.values(byId).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-200);
+}
+async function sendMessage(schoolId, docId, m) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  await setDoc(doc(db, "schools", schoolId, "messages", docId), {
+    id: m.id, to: m.to, title: m.title || "", text: m.text || "", icon: m.icon || "", date: m.date,
+    act: m.act || "", actLabel: m.actLabel || "", ref: m.ref || "", key: m.key || "", from: user.uid
+  });
+}
+
+// Payments reported by parents ("I have paid") for the accountant to check
+async function loadPayNotes(r) {
+  const col = collection(db, "schools", r.schoolId, "paynotes");
+  const role = r.profile.role;
+  let docs = [];
+  if (role === "admin" || role === "accountant") docs = (await getDocs(col)).docs;
+  else if (role === "parent") {
+    const parts = await Promise.all((r.profile.children || []).map(id => getDocs(query(col, where("studentId", "==", id)))));
+    docs = parts.flatMap(p => p.docs);
+  }
+  return docs.map(d => d.data());
+}
+async function savePayNote(schoolId, note) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  const sid = String(note.adm).trim().toUpperCase().replaceAll("/", "_");
+  await setDoc(doc(db, "schools", schoolId, "paynotes", note.id), { ...note, studentId: sid, updatedBy: user.uid });
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
