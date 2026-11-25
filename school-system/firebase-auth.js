@@ -311,4 +311,41 @@ async function savePayNote(schoolId, note) {
   await setDoc(doc(db, "schools", schoolId, "paynotes", note.id), { ...note, studentId: sid, updatedBy: user.uid });
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Promotions: one document per learner per year -> { studentId, adm, name, cls (from), to, action, year, date }
+async function loadPromotions(r) {
+  const col = collection(db, "schools", r.schoolId, "promotions");
+  const role = r.profile.role;
+  let docs = [];
+  if (role === "admin" || role === "accountant") {
+    docs = (await getDocs(col)).docs;
+  } else if (role === "teacher") {
+    const qs = [];
+    (r.profile.classes || []).forEach(c => { qs.push(getDocs(query(col, where("cls", "==", c)))); qs.push(getDocs(query(col, where("to", "==", c)))); });
+    docs = (await Promise.all(qs)).flatMap(p => p.docs);
+  } else if (role === "parent") {
+    const parts = await Promise.all((r.profile.children || []).map(id => getDocs(query(col, where("studentId", "==", id)))));
+    docs = parts.flatMap(p => p.docs);
+  }
+  const byId = {};
+  docs.forEach(d => { byId[d.id] = d.data(); });
+  return Object.values(byId);
+}
+
+// Saves the promotion log and moves the learners to their new class / status in one atomic batch.
+async function savePromotions(schoolId, entries, updates) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  const ops = [];
+  entries.forEach(e => ops.push(b => b.set(doc(db, "schools", schoolId, "promotions", e.studentId + "_" + e.year), {
+    studentId: e.studentId, adm: String(e.adm).toUpperCase(), name: e.name || "", cls: e.from, to: e.to, action: e.action,
+    year: e.year, date: e.date, by: user.uid
+  })));
+  updates.forEach(u => ops.push(b => b.update(doc(db, "schools", schoolId, "students", u.id), { cls: u.cls, status: u.status })));
+  for (let i = 0; i < ops.length; i += 400) {
+    const batch = writeBatch(db);
+    ops.slice(i, i + 400).forEach(op => op(batch));
+    await batch.commit();
+  }
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };

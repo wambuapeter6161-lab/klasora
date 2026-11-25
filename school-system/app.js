@@ -223,6 +223,30 @@ async function loadFeesRemote(r){
   }
  }catch(e){setTimeout(()=>toast('Could not load fees ('+(e.code||'error')+').'),1500);}
 }
+const curR=()=>({schoolId:currentUser.schoolId,user:{uid:currentUser.uid},profile:{role:currentUser.role,classes:currentUser.classes,children:currentUser.children,linkPhone:currentUser.linkPhone}});
+async function loadPromosRemote(r){
+ PROMO={log:[],overrides:{},done:{}};
+ try{
+  (await KlasoraFirebase.loadPromotions(r)).sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(x=>{
+   PROMO.log.push({adm:x.adm,name:x.name,from:x.cls,to:x.to,action:x.action,year:x.year,date:x.date});
+   if(x.action==='promote')PROMO.overrides[x.adm]={cls:x.to,status:'Active'};
+   else if(x.action==='complete')PROMO.overrides[x.adm]={cls:x.cls,status:'Completed'};
+   else if(x.action==='transfer')PROMO.overrides[x.adm]={cls:x.cls,status:'Transferred'};
+   if(!PROMO.done[x.year+'|'+x.cls])PROMO.done[x.year+'|'+x.cls]=x.date;
+  });
+ }catch(e){setTimeout(()=>toast('Could not load promotions ('+(e.code||'error')+').'),1000);}
+ rebuildStudents();
+}
+async function savePromoRemote(added){
+ if(!added.length||!currentUser)return;
+ const entries=added.map(l=>({...l,studentId:stuDocId(l.adm)}));
+ const updates=added.filter(l=>l.action!=='repeat').map(l=>{const o=PROMO.overrides[l.adm]||{};return{id:stuDocId(l.adm),cls:o.cls||l.from,status:o.status||'Active'}});
+ try{await KlasoraFirebase.savePromotions(currentUser.schoolId,entries,updates);}
+ catch(e){
+  toast(e.code==='permission-denied'?'You do not have permission to promote this class. Reloading your records.':'Promotion NOT saved. Check your internet. Reloading your records.');
+  const r=curR();await loadStudentsRemote(r);await loadPromosRemote(r);try{rerenderPage()}catch(_e){}
+ }
+}
 async function loadUsersRemote(r){
  USERS.length=0;
  if(r.profile.role!=='admin'){refreshUsersModule();return}
@@ -242,7 +266,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);await loadFeesRemote(r);await loadCommRemote(r);
+ await loadStudentsRemote(r);await loadPromosRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);await loadFeesRemote(r);await loadCommRemote(r);
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -283,7 +307,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;INBOX=[];PAYNOTES=[];ANN=[];STAFF=[];PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;PROMO={log:[],overrides:{},done:{}};INBOX=[];PAYNOTES=[];ANN=[];STAFF=[];PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -659,7 +683,7 @@ BASE_STUDENTS.forEach((r,i)=>{const last=r[0].split(' ').slice(-1)[0];
 /* students registered through the app (saved in this browser) */
 const NEWSTU_KEY='edutrack_new_students',PACC_KEY='edutrack_parent_accounts';
 let HIDE={};try{HIDE=JSON.parse(store.get('edutrack_flags'))||{}}catch(e){HIDE={}}
-const PROMO_KEY='edutrack_promotions';let PROMO={log:[],overrides:{},done:{}};try{const p=JSON.parse(store.get(PROMO_KEY));if(p)PROMO={log:p.log||[],overrides:p.overrides||{},done:p.done||{}}}catch(e){}
+const PROMO_KEY='edutrack_promotions';let PROMO={log:[],overrides:{},done:{}};
 let EXTRA=[];   // learners of the signed-in school, loaded from Firestore after sign-in
 function rebuildStudents(){const reg=EXTRA.filter(x=>!x.imp).reverse(),imp=EXTRA.filter(x=>x.imp);modules.students.rows=[...reg,...imp].map(x=>[x.name,x.adm,x.cls,x.gender,x.status||'Active']).concat(HIDE.students?[]:BASE_STUDENTS);modules.students.rows=modules.students.rows.map(r=>{const o=PROMO.overrides[r[1]];return o?[r[0],r[1],o.cls||r[2],r[3],o.status||r[4]]:r;}).map(r=>r.map((v,i)=>i===2?normKey(v):v));}
 rebuildStudents();
@@ -1317,7 +1341,7 @@ let TEACHERS=[],REPLACED={},NOTE_SEEN={};
 try{TEACHERS=JSON.parse(store.get(TEACH_KEY))||[]}catch(e){TEACHERS=[]}
 try{REPLACED=JSON.parse(store.get(REPL_KEY))||{}}catch(e){REPLACED={}}
 try{NOTE_SEEN=JSON.parse(store.get(SEEN_KEY))||{}}catch(e){NOTE_SEEN={}}
-const saveTeachers=()=>store.set(TEACH_KEY,JSON.stringify(TEACHERS)),saveReplaced=()=>store.set(REPL_KEY,JSON.stringify(REPLACED)),savePromo=()=>store.set(PROMO_KEY,JSON.stringify(PROMO));
+const saveTeachers=()=>store.set(TEACH_KEY,JSON.stringify(TEACHERS)),saveReplaced=()=>store.set(REPL_KEY,JSON.stringify(REPLACED)),savePromo=()=>true;
 const normLogin=s=>String(s||'').toLowerCase().replace(/[\s.]+/g,'');
 function teacherUser(t){return{id:t.id,username:t.username,name:t.name||t.username,initials:schoolInitials(t.name||t.username),role:'teacher',title:'Class Teacher, '+t.className,status:'Active',className:t.className,pending:!!t.pending,created:t.created,schoolCode:t.schoolCode||'GFA001'};}
 TEACHERS.forEach(t=>{if(!USERS.find(u=>u.id===t.id))USERS.push(teacherUser(t));});
@@ -1428,7 +1452,7 @@ function applyPromotion(cls,year,choices){
   else if(a==='repeat'){PROMO.log.push({adm:s.adm,name:s.name,from:cls,to:cls,action:'repeat',year,date:now});res.repeat++;}
   else{PROMO.overrides[s.adm]={cls,status:'Transferred'};PROMO.log.push({adm:s.adm,name:s.name,from:cls,to:cls,action:'transfer',year,date:now});res.transfer++;}});
  if(!RES.gen[year+'-T3-END|'+cls]){RES.gen[year+'-T3-END|'+cls]=now;classStudents(cls).forEach(s=>{if((RES.marks[year+'-T3-END']||{})[s.adm])RES_DIRTY.add(s.adm+'|'+year+'-T3-END')});saveRes();}
- PROMO.done[year+'|'+cls]=now;saveStuSubj();savePromo();rebuildStudents();return res;}
+ PROMO.done[year+'|'+cls]=now;saveStuSubj();savePromoRemote(PROMO.log.filter(l=>l.date===now&&+l.year===+year));rebuildStudents();return res;}
 function promoBannerHtml(u){if(!u||u.role!=='teacher')return'';const cuH=catchUpHtml();if(cuH)return cuH;const y=pendingPromotion(TEACHER_CLASS);if(!y)return promoWaitHtml();const nx=nextClass(TEACHER_CLASS);
  return`<div class="promo-banner"><span class="pb-ico">🎓</span><div><strong>Term 3 ${y} is complete for ${escH(TEACHER_CLASS)}</strong><small>${nx==='Completed'?'Mark who has completed school, who repeats and who transfers.':'Choose who is promoted to '+escH(nx)+', who repeats and who transfers.'}</small></div><button type="button" class="reg-btn gold" data-nt="promote">Promote learners</button></div>`;}
 let promoState=null,promoArmed=0;
