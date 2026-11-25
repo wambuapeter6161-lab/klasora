@@ -3,12 +3,12 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, de
 import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
-  authDomain: "klasora-school.firebaseapp.com",
-  projectId: "klasora-school",
-  storageBucket: "klasora-school.firebasestorage.app",
-  messagingSenderId: "274741090812",
-  appId: "1:274741090812:web:77ce9fdfb32f42d0383a79"
+  apiKey: "AIzaSyBJ26ARylloIA66941AsSkqIt1HCDjlmps",
+  authDomain: "klasora-2fc4a.firebaseapp.com",
+  projectId: "klasora-2fc4a",
+  storageBucket: "klasora-2fc4a.firebasestorage.app",
+  messagingSenderId: "356371857145",
+  appId: "1:356371857145:web:e32688b4d85334cdbcac28"
 };
 const app = initializeApp(firebaseConfig, "klasoraSchoolSystem");
 const auth = getAuth(app);
