@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'school-system/**'
+      - 'superadmin.*'
+      - 'klasora-icon.svg'
+      - 'assets/**'
       - '.github/workflows/pages-school.yml'
   workflow_dispatch:
 
@@ -20,12 +23,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Remove files not needed on the web
-        run: rm -rf school-system/school-desktop
+      - name: Build site (School System + Super Admin)
+        run: |
+          mkdir -p _site/superadmin
+          cp -r school-system/. _site/
+          rm -rf _site/school-desktop
+          cp superadmin.js superadmin.css klasora-icon.svg _site/superadmin/
+          cp superadmin.html _site/superadmin/index.html
+          if [ -d assets ]; then cp -r assets _site/superadmin/assets; fi
       - name: Publish to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./school-system
+          publish_dir: ./_site
           publish_branch: gh-pages
           force_orphan: true
