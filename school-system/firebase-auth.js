@@ -22,6 +22,7 @@ async function loadProfile(user) {
   const p = await getDoc(doc(db, "users", user.uid));
   if (!p.exists()) throw new Error("This account is not linked to a school. Contact your school administrator.");
   const profile = p.data();
+  if (profile.disabled === true) throw new Error("This account has been deactivated. Please contact your school administrator.");
   const s = await getDoc(doc(db, "schools", profile.schoolId));
   if (!s.exists()) throw new Error("School record not found. Contact Klasora support.");
   const school = s.data();
@@ -151,6 +152,10 @@ async function linkChildren(uid, ids) {
   await updateDoc(doc(db, "users", uid), { children: arrayUnion(...ids) });
 }
 
+async function setUserDisabled(uid, disabled) {
+  await updateDoc(doc(db, "users", uid), { disabled: !!disabled });
+}
+
 async function listSchoolUsers(schoolId) {
   const snap = await getDocs(query(collection(db, "users"), where("schoolId", "==", schoolId)));
   return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
@@ -225,7 +230,7 @@ async function saveResults(schoolId, entries) {
 // School-wide settings stored as small JSON documents (subjects, teacher subjects, learner subject choices)
 async function loadMeta(schoolId, keys) {
   const out = {};
-  for (const key of (keys || ["config", "stusubj", "feestr", "ann", "staff"])) {
+  for (const key of (keys || ["config", "stusubj", "feestr", "ann", "staff", "imports", "classteachers"])) {
     try {
       const s = await getDoc(doc(db, "schools", schoolId, "meta", key));
       if (s.exists()) out[key] = JSON.parse(s.data().json || "null");
@@ -348,4 +353,4 @@ async function savePromotions(schoolId, entries, updates) {
   }
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+window.KlasoraFirebase = { signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
