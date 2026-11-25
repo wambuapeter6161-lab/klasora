@@ -178,6 +178,12 @@ function fbUserToLocal(p,schoolId){
  const titles={admin:'School Administrator',teacher:'Teacher',accountant:'School Accountant',parent:'Parent / Guardian'};
  return{id:'fb_'+p.uid,uid:p.uid,username:p.email,email:p.email,name:p.name||p.email,initials:schoolInitials(p.name||p.email),role:p.role,title:p.title||titles[p.role]||'',status:'Active',schoolId,classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',mustChange:p.mustChangePassword===true};
 }
+async function loadAttendanceRemote(r){
+ REG={};REG_DIRTY.clear();
+ try{(await KlasoraFirebase.loadAttendance(r)).forEach(x=>{const adm=x.adm;REG[x.month]=REG[x.month]||{};REG[x.month][adm]=x.marks||{};});}
+ catch(e){setTimeout(()=>toast('Could not load attendance ('+(e.code||'error')+').'),1100);}
+ refreshAttendanceRows();
+}
 async function loadUsersRemote(r){
  USERS.length=0;
  if(r.profile.role!=='admin'){refreshUsersModule();return}
@@ -197,7 +203,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await loadStudentsRemote(r);await loadUsersRemote(r);
+ await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -238,7 +244,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;REG={};REG_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -820,7 +826,8 @@ applyProfiles();
 
 /* ================= v1.8: Class Register (month view, tap to mark present / absent) ================= */
 const REG_KEY='edutrack_register';
-let REG={};try{REG=JSON.parse(store.get(REG_KEY))||{}}catch(e){REG={}}
+let REG={};   // attendance of the signed-in school, loaded from Firestore after sign-in
+const REG_DIRTY=new Map();
 modules.register={title:'Class Register',subtitle:'Mark every learner present or absent, day by day.',stats:[['Learners','0'],['Present Today','0'],['Absent Today','0']],heads:['ITEM'],rows:[]};
 PAGE_NAMES.register='Class Register';
 ROLES.teacher.pages.push('register');
@@ -830,8 +837,24 @@ let TEACHER_CLASS='Grade 4';
 let regY=new Date().getFullYear(),regM=new Date().getMonth(),regClass=TEACHER_CLASS,regWeekend=false,regScroll=true;
 const regKey=(y,m)=>y+'-'+String(m+1).padStart(2,'0');
 function regGet(y,m,adm,d){return((REG[regKey(y,m)]||{})[adm]||{})[d]||'';}
-function regSave(){return store.set(REG_KEY,JSON.stringify(REG));}
-function regPut(y,m,adm,d,v){const k=regKey(y,m);REG[k]=REG[k]||{};REG[k][adm]=REG[k][adm]||{};if(v)REG[k][adm][d]=v;else delete REG[k][adm][d];}
+function regSave(){flushRegister();try{refreshAttendanceRows()}catch(e){}return true;}
+async function flushRegister(){
+ if(!REG_DIRTY.size||!currentUser)return;
+ const items=[...REG_DIRTY.values()];REG_DIRTY.clear();
+ const byAdm={};allStudents().forEach(s=>{byAdm[s.adm]=s});
+ const entries=items.map(it=>{const st=byAdm[it.adm];return st?{adm:it.adm,cls:st.cls,month:it.month,marks:(REG[it.month]||{})[it.adm]||{}}:null}).filter(Boolean);
+ try{await KlasoraFirebase.saveAttendance(currentUser.schoolId,entries);}
+ catch(e){items.forEach(it=>REG_DIRTY.set(it.adm+'|'+it.month,it));toast(e.code==='permission-denied'?'You do not have permission to mark this class.':'Attendance not saved yet. Check your internet; it will retry on your next change.');}
+}
+function refreshAttendanceRows(){
+ const byAdm={};allStudents().forEach(s=>{byAdm[s.adm]=s});const g={};
+ Object.keys(REG).forEach(k=>{const y=+k.slice(0,4),m=+k.slice(5,7)-1;Object.entries(REG[k]||{}).forEach(([adm,days])=>{const st=byAdm[adm];if(!st)return;Object.entries(days).forEach(([d,v])=>{const key=new Date(y,m,+d).getTime()+'|'+st.cls;const x=g[key]=g[key]||{t:new Date(y,m,+d),cls:st.cls,p:0,a:0};if(v==='P')x.p++;else if(v==='A')x.a++;});});});
+ const MS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ modules.attendance.rows=Object.values(g).sort((a,b)=>b.t-a.t||a.cls.localeCompare(b.cls)).slice(0,80).map(x=>[x.t.getDate()+' '+MS[x.t.getMonth()]+' '+x.t.getFullYear(),x.cls,String(x.p),String(x.a),(x.p+x.a?(x.p/(x.p+x.a)*100).toFixed(1):'0')+'%']);
+ const n=new Date();let P=0,A=0;allStudents().forEach(s=>{const v=regGet(n.getFullYear(),n.getMonth(),s.adm,n.getDate());if(v==='P')P++;else if(v==='A')A++;});
+ modules.attendance.stats=[['Present Today',String(P)],['Absent Today',String(A)],['Late Arrivals','0']];
+}
+function regPut(y,m,adm,d,v){const k=regKey(y,m);REG_DIRTY.set(adm+'|'+k,{adm,month:k});REG[k]=REG[k]||{};REG[k][adm]=REG[k][adm]||{};if(v)REG[k][adm][d]=v;else delete REG[k][adm][d];}
 function classStudents(cls){return allStudents().filter(s=>s.cls===cls&&s.status==='Active').sort((a,b)=>a.name.localeCompare(b.name));}
 function regCounts(y,m,d,list){let p=0,a=0;list.forEach(s=>{const v=regGet(y,m,s.adm,d);if(v==='P')p++;else if(v==='A')a++;});return{p,a,marked:p+a>0};}
 function todayCounts(cls){const n=new Date(),l=classStudents(cls),c=regCounts(n.getFullYear(),n.getMonth(),n.getDate(),l);c.n=l.length;return c;}

@@ -151,4 +151,37 @@ async function listSchoolUsers(schoolId) {
   return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, createUserAccount, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Attendance: one document per learner per month  ->  { studentId, adm, cls, month: "2026-11", marks: { "18": "P" } }
+async function loadAttendance(r) {
+  const col = collection(db, "schools", r.schoolId, "attendance");
+  const role = r.profile.role, year = String(new Date().getFullYear());
+  let docs = [];
+  if (role === "admin") {
+    docs = (await getDocs(query(col, where("month", ">=", year + "-01")))).docs;
+  } else if (role === "teacher") {
+    const parts = await Promise.all((r.profile.classes || []).map(c => getDocs(query(col, where("cls", "==", c)))));
+    docs = parts.flatMap(p => p.docs);
+  } else if (role === "parent") {
+    const parts = await Promise.all((r.profile.children || []).map(id => getDocs(query(col, where("studentId", "==", id)))));
+    docs = parts.flatMap(p => p.docs);
+  }
+  return docs.map(d => d.data()).filter(x => String(x.month || "") >= year + "-01");
+}
+
+async function saveAttendance(schoolId, entries) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  for (let i = 0; i < entries.length; i += 400) {
+    const batch = writeBatch(db);
+    entries.slice(i, i + 400).forEach(e => {
+      const sid = String(e.adm).trim().toUpperCase().replaceAll("/", "_");
+      batch.set(doc(db, "schools", schoolId, "attendance", sid + "_" + e.month), {
+        studentId: sid, adm: String(e.adm).toUpperCase(), cls: String(e.cls || ""), month: e.month,
+        marks: e.marks || {}, updatedAt: serverTimestamp(), updatedBy: user.uid
+      });
+    });
+    await batch.commit();
+  }
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, loadAttendance, saveAttendance, createUserAccount, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
