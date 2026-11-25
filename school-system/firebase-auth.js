@@ -3,12 +3,12 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, de
 import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBJ26ARylloIA66941AsSkqIt1HCDjlmps",
-  authDomain: "klasora-2fc4a.firebaseapp.com",
-  projectId: "klasora-2fc4a",
-  storageBucket: "klasora-2fc4a.firebasestorage.app",
-  messagingSenderId: "356371857145",
-  appId: "1:356371857145:web:e32688b4d85334cdbcac28"
+  apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
+  authDomain: "klasora-school.firebaseapp.com",
+  projectId: "klasora-school",
+  storageBucket: "klasora-school.firebasestorage.app",
+  messagingSenderId: "274741090812",
+  appId: "1:274741090812:web:77ce9fdfb32f42d0383a79"
 };
 const app = initializeApp(firebaseConfig, "klasoraSchoolSystem");
 const auth = getAuth(app);
@@ -150,6 +150,18 @@ async function createUserAccount(schoolId, u) {
 // Adds learners to an existing parent's profile (e.g. a new brother or sister is admitted).
 async function linkChildren(uid, ids) {
   await updateDoc(doc(db, "users", uid), { children: arrayUnion(...ids) });
+}
+
+// True while this account and its school are still active (used to end sessions after a suspension).
+async function stillActive(schoolId) {
+  const user = auth.currentUser;
+  if (!user) return false;
+  try {
+    const p = await getDoc(doc(db, "users", user.uid));
+    if (!p.exists() || p.data().disabled === true) return false;
+    const s = await getDoc(doc(db, "schools", schoolId));
+    return s.exists() && String(s.data().status || "").toLowerCase() === "active";
+  } catch (e) { return true; }   // a network error must not sign anybody out
 }
 
 async function setUserDisabled(uid, disabled) {
@@ -353,4 +365,22 @@ async function savePromotions(schoolId, entries, updates) {
   }
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+const api = { signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, stillActive, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+
+// Everything read from the database is cleaned of markup characters before any screen can use it,
+// so text typed by one user (a name, a message, a payment reference) can never run as code for another.
+const clean = v => {
+  if (typeof v === "string") return v.replace(/[<>]/g, "").replace(/"/g, "\u201d").replace(/`/g, "'");
+  if (Array.isArray(v)) return v.map(clean);
+  if (v && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype) {
+    const o = {};
+    Object.keys(v).forEach(k => { o[clean(k)] = clean(v[k]); });
+    return o;
+  }
+  return v;
+};
+["signIn", "restore", "listSchoolUsers"].concat(Object.keys(api).filter(k => k.startsWith("load"))).forEach(k => {
+  const fn = api[k];
+  api[k] = async (...a) => clean(await fn(...a));
+});
+window.KlasoraFirebase = api;
