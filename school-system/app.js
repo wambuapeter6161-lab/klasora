@@ -205,6 +205,24 @@ async function loadResultsRemote(r){
   }
  }catch(e){setTimeout(()=>toast('Could not load exam results ('+(e.code||'error')+').'),1300);}
 }
+async function savePaymentRemote(rec){
+ try{await KlasoraFirebase.savePayment(currentUser.schoolId,rec);}
+ catch(e){PAYLOG=PAYLOG.filter(p=>p.id!==rec.id);try{showPage('fees')}catch(_e){}toast(e.code==='permission-denied'?'You do not have permission to record payments.':'Payment NOT saved. Check your internet and record it again.');}
+}
+async function reversePaymentRemote(rec){
+ try{await KlasoraFirebase.reversePayment(currentUser.schoolId,rec.id);}
+ catch(e){PAYLOG.push(rec);try{showPage('fees')}catch(_e){}toast('Reversal NOT saved. Check your internet and try again.');}
+}
+async function loadFeesRemote(r){
+ PAYLOG=[];FEESTR={};_fsCache={};
+ try{
+  PAYLOG=(await KlasoraFirebase.loadPayments(r)).filter(p=>!p.reversed).map(p=>({id:p.id,rcpt:p.rcpt,adm:p.adm,year:p.year,term:p.term,amount:p.amount,method:p.method,ref:p.ref||'',date:p.date,by:p.by||''}));
+  if(['admin','accountant','parent'].includes(r.profile.role)){
+   const m=await KlasoraFirebase.loadMeta(r.schoolId,['feestr']);
+   if(m.feestr&&typeof m.feestr==='object'&&!Array.isArray(m.feestr))FEESTR=m.feestr;
+  }
+ }catch(e){setTimeout(()=>toast('Could not load fees ('+(e.code||'error')+').'),1500);}
+}
 async function loadUsersRemote(r){
  USERS.length=0;
  if(r.profile.role!=='admin'){refreshUsersModule();return}
@@ -224,7 +242,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);
+ await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);await loadFeesRemote(r);
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -265,7 +283,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -2220,9 +2238,10 @@ const FEE_TERMS=[1,2,3];
 const feeYear=()=>new Date().getFullYear();
 const termOfMonth=m=>m<4?1:m<8?2:3;
 const fmtN=n=>Number(n||0).toLocaleString('en-US');
-let FEESTR={};try{FEESTR=JSON.parse(store.get(FEESTR_KEY))||{}}catch(e){FEESTR={}}
+let FEESTR={};
 if(!FEESTR||typeof FEESTR!=='object'||Array.isArray(FEESTR))FEESTR={};
-let PAYLOG=[];try{PAYLOG=JSON.parse(store.get(PAY_KEY))||[]}catch(e){PAYLOG=[]}
+let PAYLOG=[];
+const saveFeeStr=()=>{saveMetaRemote('feestr',FEESTR);return true;};
 if(!Array.isArray(PAYLOG))PAYLOG=[];
 let _fsCache={};
 const feeStructSaved=y=>!!FEESTR[y];
@@ -2293,10 +2312,10 @@ $('feeSetupPanel').addEventListener('click',e=>{
  const b=e.target.closest('[data-fee]');if(!b)return;const a=b.dataset.fee;
  if(!currentUser||currentUser.role!=='accountant'){toast('Only the accountant can change the fee structure.');return}
  if(a==='same'){const g=b.dataset.g,v=feeDraft[g][0];feeDraft[g]=[v,v,v];document.querySelectorAll('.fee-in[data-g="'+g+'"]').forEach(x=>x.value=v);const y=document.querySelector('[data-yr="'+g+'"]');if(y)y.textContent='Year: '+money(feeYearSum(g));return}
- if(a==='reset'){if(Date.now()-feeResetArmed<5000){delete FEESTR[feeYear()];_fsCache={};store.set(FEESTR_KEY,JSON.stringify(FEESTR));feeResetArmed=0;renderFeeSetup();toast('Fee structure reset to the starting amounts.');}else{feeResetArmed=Date.now();toast('Tap Reset again to restore the starting amounts.');}return}
+ if(a==='reset'){if(Date.now()-feeResetArmed<5000){delete FEESTR[feeYear()];_fsCache={};saveFeeStr();feeResetArmed=0;renderFeeSetup();toast('Fee structure reset to the starting amounts.');}else{feeResetArmed=Date.now();toast('Tap Reset again to restore the starting amounts.');}return}
  if(a==='save'){
   const out={};for(const g of CLASS_LIST){const arr=feeDraft[g].map(v=>parseInt(v,10));if(arr.some(n=>isNaN(n)||n<0||n>feeCap)){toast('Check '+g+': type an amount for every term (0 to 10,000,000).');return}out[g]=arr;}
-  FEESTR[feeYear()]=out;_fsCache={};const ok=store.set(FEESTR_KEY,JSON.stringify(FEESTR));renderFeeSetup();
+  FEESTR[feeYear()]=out;_fsCache={};const ok=saveFeeStr();renderFeeSetup();
   toast(ok?'Fee structure saved. The administrator and parents can now see it.':'Saved for this session only (browser storage is unavailable).');}
 });
 
@@ -2336,7 +2355,7 @@ function savePayment(){
  if(bal===0){toast('Term '+t+' is already fully paid.');return}
  if(amt>bal){toast('That is more than the Term '+t+' balance ('+money(bal)+'). Record the extra under the next term.');return}
  const rec={id:'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),rcpt:nextReceipt(y),adm:s.adm,year:y,term:t,amount:amt,method:$('fpMethod').value,ref:cleanTxt($('fpRef').value).slice(0,20),date:new Date().toISOString(),by:currentUser.name};
- PAYLOG.push(rec);const ok=store.set(PAY_KEY,JSON.stringify(PAYLOG));fpChanged=false;closeFp();showPage('fees');
+ PAYLOG.push(rec);const ok=true;savePaymentRemote(rec);fpChanged=false;closeFp();showPage('fees');
  if(fpNote){settlePayNote(fpNote,rec,s);fpNote='';}else notifyParentPayment(rec,s);
  const nf=feeSummary(s,y);
  showDetail({grad:G.green,label:'Receipt '+rec.rcpt,value:money(amt),title:'Payment recorded',sub:ok?'Saved in this browser':'Saved for this session only',go:'fees',goLabel:'Back to Fees',
@@ -2352,7 +2371,7 @@ $('fpBackdrop').addEventListener('click',e=>{
  const b=e.target.closest('[data-fp]');if(!b)return;const a=b.dataset.fp;
  if(a==='close')closeFp();else if(a==='save')savePayment();
  else if(a==='rev'){if(!currentUser||currentUser.role!=='accountant')return;
-  if(fpArm.id===b.dataset.id&&Date.now()-fpArm.t<5000){PAYLOG=PAYLOG.filter(p=>p.id!==b.dataset.id);store.set(PAY_KEY,JSON.stringify(PAYLOG));fpArm={id:'',t:0};fpChanged=true;toast('Payment reversed.');openPayHistory();}
+  if(fpArm.id===b.dataset.id&&Date.now()-fpArm.t<5000){{const gone=PAYLOG.find(p=>p.id===b.dataset.id);PAYLOG=PAYLOG.filter(p=>p.id!==b.dataset.id);if(gone)reversePaymentRemote(gone);}fpArm={id:'',t:0};fpChanged=true;toast('Payment reversed.');openPayHistory();}
   else{fpArm={id:b.dataset.id,t:Date.now()};openPayHistory();}}
 });
 $('payHistBtn').addEventListener('click',()=>{if(currentUser)openPayHistory();});

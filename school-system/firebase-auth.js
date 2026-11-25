@@ -223,9 +223,9 @@ async function saveResults(schoolId, entries) {
 }
 
 // School-wide settings stored as small JSON documents (subjects, teacher subjects, learner subject choices)
-async function loadMeta(schoolId) {
+async function loadMeta(schoolId, keys) {
   const out = {};
-  for (const key of ["config", "stusubj"]) {
+  for (const key of (keys || ["config", "stusubj", "feestr"])) {
     try {
       const s = await getDoc(doc(db, "schools", schoolId, "meta", key));
       if (s.exists()) out[key] = JSON.parse(s.data().json || "null");
@@ -239,4 +239,35 @@ async function saveMeta(schoolId, key, value) {
   await setDoc(doc(db, "schools", schoolId, "meta", key), { json: JSON.stringify(value), updatedAt: serverTimestamp(), updatedBy: user.uid });
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Payments: one document per receipt. A payment is never deleted; a reversal is flagged and kept for audit.
+async function loadPayments(r) {
+  const col = collection(db, "schools", r.schoolId, "payments");
+  const role = r.profile.role;
+  let docs = [];
+  if (role === "admin" || role === "accountant") {
+    docs = (await getDocs(col)).docs;
+  } else if (role === "parent") {
+    const parts = await Promise.all((r.profile.children || []).map(id => getDocs(query(col, where("studentId", "==", id)))));
+    docs = parts.flatMap(p => p.docs);
+  }
+  return docs.map(d => d.data());
+}
+
+async function savePayment(schoolId, rec) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  const sid = String(rec.adm).trim().toUpperCase().replaceAll("/", "_");
+  await setDoc(doc(db, "schools", schoolId, "payments", rec.id), {
+    id: rec.id, rcpt: rec.rcpt, studentId: sid, adm: String(rec.adm).toUpperCase(), year: rec.year, term: rec.term,
+    amount: rec.amount, method: rec.method, ref: rec.ref || "", date: rec.date, by: rec.by || "",
+    reversed: false, createdAt: serverTimestamp(), createdBy: user.uid
+  });
+}
+
+async function reversePayment(schoolId, id) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  await updateDoc(doc(db, "schools", schoolId, "payments", id), { reversed: true, reversedAt: serverTimestamp(), reversedBy: user.uid });
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
