@@ -2231,7 +2231,9 @@ $('pdModal').addEventListener('click',e=>{
  DETAILS.attendance=()=>({tone:'tone-green',label:"Today's Attendance",value:'0%',title:'Attendance Details',sub:'No register marked yet',go:'attendance',goLabel:'Open Attendance',body:sec('TODAY',[['Present','0'],['Absent','0'],['Late arrivals','0']])});
  DETAILS.fees=()=>({tone:'tone-orange',label:'Fee Collection',value:'KSh 0',title:'Fee Collection Details',sub:'No payments recorded yet',go:'fees',goLabel:'Open Fees',body:sec('THIS TERM',[['Billed','KSh 0'],['Collected','KSh 0'],['Outstanding','KSh 0']])});
  modules.settings.rows[0][1]=(currentUser&&currentUser.schoolName)||'';
- const r=modules.reports;r.stats[1][1]='0';r.stats[2][1]='0';r.rows.forEach(x=>{x[2]='Not generated yet'});
+ modules.reports.rows.forEach(x=>{x[2]='Not generated yet'});
+ Object.defineProperty(modules.reports,'stats',{configurable:true,get(){const ym=new Date().toISOString().slice(0,7);return[['Available Reports',String(allStudents().length?modules.reports.rows.length:0)],['Generated This Month',String(Object.values(RES.gen).filter(d=>String(d).slice(0,7)===ym).length)],['Scheduled','0']];}});
+ Object.defineProperty(modules.settings,'stats',{configurable:true,get(){return[['School Profile','Complete'],['Academic Year',String(new Date().getFullYear())],['Accounts',String(USERS.filter(u=>u.role!=='admin').length)]];}});
 })();
 restoreSession();
 
@@ -2240,7 +2242,7 @@ restoreSession();
 function refreshClassRows(){
  const keys=classKeys(),rows=keys.map(k=>{const t=teacherOf(k),r=[k,t?t.name:'No class teacher yet',String(classStudents(k).length),String(classTeam(k).count),t?'Active':'Pending'];r.meta={t:'class',cls:k};return r;}),T=tsTotals();
  modules.classes.rows=rows;
- modules.classes.stats=[['Classes',String(rows.length)],['Teachers',String(T.teachers)],['Class Teachers',String(T.cts)]];
+ modules.classes.stats=[['Classes',String(rows.filter(r=>+r[2]>0).length)],['Teachers',String(T.teachers)],['Class Teachers',String(T.cts)]];
 }
 function streamInputsVals(){return[...document.querySelectorAll('#streamNames .stream-in')].map(i=>i.value);}
 function updateStreamPreview(){
