@@ -160,7 +160,12 @@ $('pwToggle').onclick=()=>{const p=$('loginPass'),show=p.type==='password';p.typ
 /* ---------- Students: saved to the school's Firestore records ---------- */
 async function saveStudentsRemote(list){
  if(!list.length||!currentUser)return;
- try{await KlasoraFirebase.saveStudents(currentUser.schoolId,list);}
+ try{
+  await KlasoraFirebase.saveStudents(currentUser.schoolId,list);
+  // a new learner of an existing guardian becomes visible to that parent's account
+  const byParent={};list.forEach(r=>{const p=USERS.find(u=>u.role==='parent'&&u.linkPhone&&u.linkPhone===r.phone);if(p)(byParent[p.uid]=byParent[p.uid]||{p,ids:[]}).ids.push(stuDocId(r.adm));});
+  for(const k of Object.keys(byParent)){const {p,ids}=byParent[k];try{await KlasoraFirebase.linkChildren(p.uid,ids);p.children=[...new Set([...(p.children||[]),...ids])];}catch(_e){}}
+ }
  catch(e){
   EXTRA=EXTRA.filter(x=>!list.includes(x));rebuildStudents();try{rerenderPage()}catch(_e){}
   toast(e.code==='permission-denied'?'You do not have permission to add students.':'Could not save to the school database. Check your internet and try again.');
@@ -176,7 +181,7 @@ async function loadStudentsRemote(r){
 
 function fbUserToLocal(p,schoolId){
  const titles={admin:'School Administrator',teacher:'Teacher',accountant:'School Accountant',parent:'Parent / Guardian'};
- return{id:'fb_'+p.uid,uid:p.uid,username:p.email,email:p.email,name:p.name||p.email,initials:schoolInitials(p.name||p.email),role:p.role,title:p.title||titles[p.role]||'',status:'Active',schoolId,classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',mustChange:p.mustChangePassword===true};
+ return{id:'fb_'+p.uid,uid:p.uid,username:p.email,email:p.email,name:p.name||p.email,initials:schoolInitials(p.name||p.email),role:p.role,title:p.title||titles[p.role]||'',status:'Active',schoolId,classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',linkPhone:p.linkPhone||'',phone:p.linkPhone?fmtPhone(p.linkPhone):'',mustChange:p.mustChangePassword===true};
 }
 async function loadAttendanceRemote(r){
  REG={};REG_DIRTY.clear();
@@ -199,7 +204,7 @@ function userFromFirebase(r){
  const titles={admin:'School Administrator',teacher:'Teacher',accountant:'School Accountant',parent:'Parent / Guardian'};
  return{id:'fb_'+r.user.uid,uid:r.user.uid,username:r.user.email,email:r.user.email,name,initials:schoolInitials(name),role:p.role,title:p.title||titles[p.role],status:'Active',
   schoolId:r.schoolId,schoolCode:r.school.code||r.schoolId,schoolName:r.school.name,poBox:r.school.poBox||'',
-  classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',mustChange:p.mustChangePassword===true};
+  classes:p.classes||[],children:p.children||[],className:(p.classes&&p.classes[0])||'',linkPhone:p.linkPhone||'',phone:p.linkPhone?fmtPhone(p.linkPhone):'',mustChange:p.mustChangePassword===true};
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
@@ -412,22 +417,35 @@ function applySchool(){
  document.title=s.name+' | Klasora';
 }
 let pendingLogo='';
+const stuDocId=adm=>String(adm).trim().toUpperCase().replaceAll('/','_');
 function renderAccountantManager(){
  const box=$('accountantPanel');if(!box)return;
- const list=USERS.filter(u=>u.role==='accountant'||u.role==='teacher');
+ const list=USERS.filter(u=>u.role==='accountant'||u.role==='teacher'||u.role==='parent');
  const clsOpts=classKeys().map(c=>`<option>${escH(c)}</option>`).join('');
- box.innerHTML=`<div class="panel-heading"><div><h3>Staff Account Access</h3><p>Create sign-in accounts for teachers and accountants. They must replace the temporary password on first login.</p></div></div><div class="form-fields"><div class="field"><label>Account type</label><select id="newAccRole"><option value="accountant">Accountant</option><option value="teacher">Teacher</option></select></div><div class="field hidden" id="newAccClassWrap"><label>Class taught</label><select id="newAccClass">${clsOpts}</select></div><div class="field"><label>Full name</label><input id="newAccName" placeholder="e.g. Mary Wanjiku"></div><div class="field"><label>Email</label><input id="newAccEmail" type="email" placeholder="name@example.com"></div><div class="field"><label>Temporary password</label><input id="newAccTemp" type="text" placeholder="At least 8 characters"></div></div><div class="modal-actions"><button type="button" class="btn btn-primary" id="createAccountant">＋ Create Account</button></div><div class="streams-box"><h4>Staff accounts in this school</h4>${list.length?list.map(u=>`<div class="access-row"><span>${escH(u.name)}<small style="display:block;color:#8290a4">${escH(u.email||u.username)} · ${u.role==='teacher'?'Teacher'+(u.className?', '+escH(u.className):''):'Accountant'}</small></span><span>${u.mustChange?'Temporary password':'Active'}</span></div>`).join(''):'<p class="su-hint">No staff accounts have been created yet.</p>'}</div>`;
- const roleSel=$('newAccRole');roleSel.onchange=()=>$('newAccClassWrap').classList.toggle('hidden',roleSel.value!=='teacher');
+ const gOpts=guardians().filter(g=>!accountFor(g.phone)).map(g=>`<option value="${escH(g.phone)}">${escH(g.names.join(' / '))} · ${escH(fmtPhone(g.phone))} · ${g.kids.map(k=>escH(k.name.split(' ')[0])).join(', ')}</option>`).join('');
+ const roleTxt=u=>u.role==='teacher'?'Teacher'+(u.className?', '+escH(u.className):''):u.role==='parent'?'Parent'+((u.children||[]).length?', '+u.children.length+' learner'+(u.children.length===1?'':'s'):''):'Accountant';
+ box.innerHTML=`<div class="panel-heading"><div><h3>Staff &amp; Parent Accounts</h3><p>Create sign-in accounts for teachers, accountants and parents. Everyone must replace the temporary password on first login.</p></div></div><div class="form-fields"><div class="field"><label>Account type</label><select id="newAccRole"><option value="accountant">Accountant</option><option value="teacher">Teacher</option><option value="parent">Parent / Guardian</option></select></div><div class="field hidden" id="newAccClassWrap"><label>Class taught</label><select id="newAccClass">${clsOpts}</select></div><div class="field hidden" id="newAccParentWrap"><label>Parent / guardian (from learner records)</label><select id="newAccParent">${gOpts||'<option value="">No guardian without an account</option>'}</select></div><div class="field"><label>Full name</label><input id="newAccName" placeholder="e.g. Mary Wanjiku"></div><div class="field"><label>Email</label><input id="newAccEmail" type="email" placeholder="name@example.com"></div><div class="field"><label>Temporary password</label><input id="newAccTemp" type="text" placeholder="At least 8 characters"></div></div><div class="modal-actions"><button type="button" class="btn btn-primary" id="createAccountant">＋ Create Account</button></div><div class="streams-box"><h4>Accounts in this school</h4>${list.length?list.map(u=>`<div class="access-row"><span>${escH(u.name)}<small style="display:block;color:#8290a4">${escH(u.email||u.username)} · ${roleTxt(u)}</small></span><span>${u.mustChange?'Temporary password':'Active'}</span></div>`).join(''):'<p class="su-hint">No accounts have been created yet.</p>'}</div>`;
+ const roleSel=$('newAccRole');
+ roleSel.onchange=()=>{$('newAccClassWrap').classList.toggle('hidden',roleSel.value!=='teacher');$('newAccParentWrap').classList.toggle('hidden',roleSel.value!=='parent');};
  $('createAccountant').onclick=async()=>{
-  const role=roleSel.value,name=$('newAccName').value.trim().replace(/[<>]/g,''),email=$('newAccEmail').value.trim().toLowerCase(),temp=$('newAccTemp').value,cls=role==='teacher'?$('newAccClass').value:'';
-  if(wordCount(name)<2||!/^\S+@\S+\.\S+$/.test(email)||temp.length<8){toast('Enter the full name, a valid email and a temporary password of at least 8 characters.');return}
+  const role=roleSel.value,email=$('newAccEmail').value.trim().toLowerCase(),temp=$('newAccTemp').value;
+  let name=$('newAccName').value.trim().replace(/[<>]/g,''),cls='',phone='',kids=[];
+  if(role==='teacher')cls=$('newAccClass').value;
+  if(role==='parent'){
+   phone=$('newAccParent').value;const g=guardians().find(x=>x.phone===phone);
+   if(!g){toast('Add the learner first, then create the parent account.');return}
+   kids=g.kids.map(k=>stuDocId(k.adm));if(!name)name=g.names[0]||'Parent';
+  }
+  if(!/^\S+@\S+\.\S+$/.test(email)||temp.length<8){toast('Enter a valid email and a temporary password of at least 8 characters.');return}
+  if(role!=='parent'&&wordCount(name)<2){toast('Enter the full name (first and last name).');return}
   if(role==='teacher'&&!cls){toast('Choose the class this teacher teaches.');return}
   if(USERS.some(u=>String(u.email||'').toLowerCase()===email)){toast('An account already uses that email.');return}
   const btn=$('createAccountant');btn.disabled=true;
   try{
-   const uid=await KlasoraFirebase.createUserAccount(currentUser.schoolId,{email,password:temp,name,role,classes:cls?[cls]:[]});
-   USERS.push(fbUserToLocal({uid,role,name,email,classes:cls?[cls]:[],children:[],mustChangePassword:true},currentUser.schoolId));
-   refreshUsersModule();renderAccountantManager();toast((role==='teacher'?'Teacher':'Accountant')+' account created. Share the temporary password securely.');
+   const profile={role,name,email,classes:cls?[cls]:[],children:kids,linkPhone:phone};
+   const uid=await KlasoraFirebase.createUserAccount(currentUser.schoolId,{...profile,password:temp});
+   USERS.push(fbUserToLocal({uid,...profile,mustChangePassword:true},currentUser.schoolId));
+   refreshUsersModule();renderAccountantManager();toast('Account created. Share the temporary password securely.');
   }catch(e){
    toast(e.code==='auth/email-already-in-use'?'That email already has an account.':e.code==='permission-denied'?'You do not have permission to create accounts.':e.code==='auth/weak-password'?'Choose a stronger temporary password.':'Could not create the account. Check your internet and try again.');
    btn.disabled=false;

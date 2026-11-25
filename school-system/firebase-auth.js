@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
@@ -135,7 +135,7 @@ async function createUserAccount(schoolId, u) {
   try {
     await setDoc(doc(db, "users", uid), {
       role: u.role, schoolId, name: u.name, email,
-      classes: u.classes || [], children: u.children || [],
+      classes: u.classes || [], children: u.children || [], linkPhone: u.linkPhone || "",
       mustChangePassword: true, createdAt: serverTimestamp(), createdBy: admin.uid
     });
   } catch (e) {
@@ -144,6 +144,11 @@ async function createUserAccount(schoolId, u) {
   }
   await signOut(authProv);
   return uid;
+}
+
+// Adds learners to an existing parent's profile (e.g. a new brother or sister is admitted).
+async function linkChildren(uid, ids) {
+  await updateDoc(doc(db, "users", uid), { children: arrayUnion(...ids) });
 }
 
 async function listSchoolUsers(schoolId) {
@@ -184,4 +189,4 @@ async function saveAttendance(schoolId, entries) {
   }
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadAttendance, saveAttendance, createUserAccount, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+window.KlasoraFirebase = { signIn, restore, changePassword, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
