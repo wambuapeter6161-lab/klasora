@@ -189,4 +189,54 @@ async function saveAttendance(schoolId, entries) {
   }
 }
 
-window.KlasoraFirebase = { signIn, restore, changePassword, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+// Exam results: one document per learner per exam -> { studentId, adm, cls, examKey: "2026-T3-END", marks, note, gen }
+async function loadResults(r) {
+  const col = collection(db, "schools", r.schoolId, "results");
+  const role = r.profile.role;
+  let docs = [];
+  if (role === "admin") {
+    docs = (await getDocs(col)).docs;
+  } else if (role === "teacher") {
+    const parts = await Promise.all((r.profile.classes || []).map(c => getDocs(query(col, where("cls", "==", c)))));
+    docs = parts.flatMap(p => p.docs);
+  } else if (role === "parent") {
+    const parts = await Promise.all((r.profile.children || []).map(id => getDocs(query(col, where("studentId", "==", id)))));
+    docs = parts.flatMap(p => p.docs);
+  }
+  return docs.map(d => d.data());
+}
+
+async function saveResults(schoolId, entries) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  for (let i = 0; i < entries.length; i += 400) {
+    const batch = writeBatch(db);
+    entries.slice(i, i + 400).forEach(e => {
+      const sid = String(e.adm).trim().toUpperCase().replaceAll("/", "_");
+      batch.set(doc(db, "schools", schoolId, "results", sid + "_" + e.examKey), {
+        studentId: sid, adm: String(e.adm).toUpperCase(), cls: String(e.cls || ""), examKey: e.examKey,
+        marks: e.marks || {}, note: e.note || null, gen: e.gen || "", updatedAt: serverTimestamp(), updatedBy: user.uid
+      });
+    });
+    await batch.commit();
+  }
+}
+
+// School-wide settings stored as small JSON documents (subjects, teacher subjects, learner subject choices)
+async function loadMeta(schoolId) {
+  const out = {};
+  for (const key of ["config", "stusubj"]) {
+    try {
+      const s = await getDoc(doc(db, "schools", schoolId, "meta", key));
+      if (s.exists()) out[key] = JSON.parse(s.data().json || "null");
+    } catch (e) { if (e.code !== "permission-denied") throw e; }
+  }
+  return out;
+}
+async function saveMeta(schoolId, key, value) {
+  const user = auth.currentUser;
+  if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
+  await setDoc(doc(db, "schools", schoolId, "meta", key), { json: JSON.stringify(value), updatedAt: serverTimestamp(), updatedBy: user.uid });
+}
+
+window.KlasoraFirebase = { signIn, restore, changePassword, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };

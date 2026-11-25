@@ -189,6 +189,22 @@ async function loadAttendanceRemote(r){
  catch(e){setTimeout(()=>toast('Could not load attendance ('+(e.code||'error')+').'),1100);}
  refreshAttendanceRows();
 }
+async function loadResultsRemote(r){
+ RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();
+ try{
+  (await KlasoraFirebase.loadResults(r)).forEach(x=>{
+   const k=x.examKey,p=k.split('-');
+   if(x.marks&&Object.keys(x.marks).length){RES.marks[k]=RES.marks[k]||{};RES.marks[k][x.adm]=x.marks;}
+   if(x.note){const nk=p[0]+'-'+p[1];RES.notes[nk]=RES.notes[nk]||{};RES.notes[nk][x.adm]=x.note;}
+   if(x.gen)RES.gen[k+'|'+x.cls]=x.gen;
+  });
+  if(r.profile.role!=='parent'){
+   const m=await KlasoraFirebase.loadMeta(r.schoolId);
+   if(m.config){if(m.config.subj)SUBJ={added:m.config.subj.added||{},removed:m.config.subj.removed||{}};if(Array.isArray(m.config.ts))TS=m.config.ts;}
+   if(m.stusubj&&typeof m.stusubj==='object')STUSUBJ=m.stusubj;
+  }
+ }catch(e){setTimeout(()=>toast('Could not load exam results ('+(e.code||'error')+').'),1300);}
+}
 async function loadUsersRemote(r){
  USERS.length=0;
  if(r.profile.role!=='admin'){refreshUsersModule();return}
@@ -208,7 +224,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);
+ await loadStudentsRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -249,7 +265,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;REG={};REG_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -953,10 +969,23 @@ $('registerPage').addEventListener('change',e=>{if(e.target.id==='regClassSel'){
 /* ================= v1.9: Subjects, results entry, CBC results, report cards ================= */
 const RES_KEY='edutrack_results',SUBJ_KEY='edutrack_subjects',STUSUBJ_KEY='edutrack_stusubj';
 let RES={marks:{},notes:{},gen:{}},SUBJ={added:{},removed:{}},STUSUBJ={};
-try{const r=JSON.parse(store.get(RES_KEY));if(r)RES={marks:r.marks||{},notes:r.notes||{},gen:r.gen||{}}}catch(e){}
-try{const r=JSON.parse(store.get(SUBJ_KEY));if(r)SUBJ={added:r.added||{},removed:r.removed||{}}}catch(e){}
-try{STUSUBJ=JSON.parse(store.get(STUSUBJ_KEY))||{}}catch(e){STUSUBJ={}}
-const saveRes=()=>store.set(RES_KEY,JSON.stringify(RES)),saveSubj=()=>store.set(SUBJ_KEY,JSON.stringify(SUBJ)),saveStuSubj=()=>store.set(STUSUBJ_KEY,JSON.stringify(STUSUBJ));
+const RES_DIRTY=new Set();
+const saveRes=()=>{flushResults();return true;},saveSubj=()=>{saveConfigRemote();return true;},saveStuSubj=()=>{saveMetaRemote('stusubj',STUSUBJ);return true;};
+async function flushResults(){
+ if(!RES_DIRTY.size||!currentUser)return;
+ const items=[...RES_DIRTY];RES_DIRTY.clear();
+ const byAdm={};allStudents().forEach(s=>{byAdm[s.adm]=s});
+ const entries=items.map(it=>{const[adm,k]=it.split('|'),st=byAdm[adm];if(!st)return null;const p=k.split('-');
+  return{adm,cls:st.cls,examKey:k,marks:(RES.marks[k]||{})[adm]||{},note:((RES.notes[p[0]+'-'+p[1]]||{})[adm])||null,gen:RES.gen[k+'|'+st.cls]||''};}).filter(Boolean);
+ try{await KlasoraFirebase.saveResults(currentUser.schoolId,entries);}
+ catch(e){items.forEach(i=>RES_DIRTY.add(i));toast(e.code==='permission-denied'?'You do not have permission to save these results.':'Results not saved yet. Check your internet; they will retry on your next change.');}
+}
+async function saveMetaRemote(key,val){
+ if(!currentUser||currentUser.role==='parent')return;
+ try{await KlasoraFirebase.saveMeta(currentUser.schoolId,key,val);}
+ catch(e){toast(e.code==='permission-denied'?'Only the school administrator can change this setting.':'Setting not saved. Check your internet and try again.');}
+}
+function saveConfigRemote(){return saveMetaRemote('config',{subj:SUBJ,ts:TS});}
 ['Grade 10','Grade 11','Grade 12'].forEach(g=>{if(!CLASS_LIST.includes(g))CLASS_LIST.push(g)});
 modules.subjects={title:'Subjects',subtitle:'Subjects taught in each grade. Add or remove subjects for your school.',stats:[['Grades','12'],['Subjects','0'],['Custom','0']],heads:['ITEM'],rows:[]};
 PAGE_NAMES.subjects='Subjects';ROLES.teacher.pages.push('subjects');
@@ -1011,7 +1040,7 @@ function recordMarks(adm,k,map,note){
  const s=allStudents().find(x=>x.adm===adm);if(!s)return;const shown=Object.keys(map),prev=marksOf(adm,k),out={};
  Object.keys(prev).forEach(x=>{if(!shown.includes(x))out[x]=prev[x];});Object.keys(map).forEach(x=>{if(map[x])out[x]=map[x];});
  RES.marks[k]=RES.marks[k]||{};if(Object.keys(out).length)RES.marks[k][adm]=out;else delete RES.marks[k][adm];
- if(note){const p=k.split('-'),nk=p[0]+'-'+p[1];RES.notes[nk]=RES.notes[nk]||{};RES.notes[nk][adm]=note;}saveRes();}
+ if(note){const p=k.split('-'),nk=p[0]+'-'+p[1];RES.notes[nk]=RES.notes[nk]||{};RES.notes[nk][adm]=note;}RES_DIRTY.add(adm+'|'+k);saveRes();}
 function orderedSubjects(s,m){const base=learnerSubjects(s).filter(x=>m[x]);return[...base,...Object.keys(m).filter(x=>!base.includes(x))];}
 function buildClassResults(k,cls){
  const list=examStudents(cls,k),rows=list.map(s=>{const m=marksOf(s.adm,k),subs=orderedSubjects(s,m),v=subs.map(x=>m[x].pct),avg=v.length?v.reduce((a,b)=>a+b,0)/v.length:null;return{s,m,subs,avg};});
@@ -1064,7 +1093,7 @@ function renderTeacherExams(){
 function generateResults(){
  const k=exKey(),r=buildClassResults(k,TEACHER_CLASS);
  if(!r.ranked.length){toast('Enter results for at least one learner first.');return}
- RES.gen[k+'|'+TEACHER_CLASS]=new Date().toISOString();saveRes();exView='results';renderExams();window.scrollTo(0,0);}
+ RES.gen[k+'|'+TEACHER_CLASS]=new Date().toISOString();classStudents(TEACHER_CLASS).forEach(s=>{if((RES.marks[k]||{})[s.adm])RES_DIRTY.add(s.adm+'|'+k)});saveRes();exView='results';renderExams();window.scrollTo(0,0);}
 function renderResultsView(){
  const k=exKey(),r=buildClassResults(k,TEACHER_CLASS),ct=clsTeacher(TEACHER_CLASS);
  const cell=x=>`<td><span class="lv ${levelCode(x)}">${levelCode(x)}</span></td>`;
@@ -1380,7 +1409,7 @@ function applyPromotion(cls,year,choices){
    else{PROMO.overrides[s.adm]={cls:nx,status:'Active'};carrySubjects(s,cls,nx);PROMO.log.push({adm:s.adm,name:s.name,from:cls,to:nx,action:'promote',year,date:now});res.promote++;}}
   else if(a==='repeat'){PROMO.log.push({adm:s.adm,name:s.name,from:cls,to:cls,action:'repeat',year,date:now});res.repeat++;}
   else{PROMO.overrides[s.adm]={cls,status:'Transferred'};PROMO.log.push({adm:s.adm,name:s.name,from:cls,to:cls,action:'transfer',year,date:now});res.transfer++;}});
- if(!RES.gen[year+'-T3-END|'+cls]){RES.gen[year+'-T3-END|'+cls]=now;saveRes();}
+ if(!RES.gen[year+'-T3-END|'+cls]){RES.gen[year+'-T3-END|'+cls]=now;classStudents(cls).forEach(s=>{if((RES.marks[year+'-T3-END']||{})[s.adm])RES_DIRTY.add(s.adm+'|'+year+'-T3-END')});saveRes();}
  PROMO.done[year+'|'+cls]=now;saveStuSubj();savePromo();rebuildStudents();return res;}
 function promoBannerHtml(u){if(!u||u.role!=='teacher')return'';const cuH=catchUpHtml();if(cuH)return cuH;const y=pendingPromotion(TEACHER_CLASS);if(!y)return promoWaitHtml();const nx=nextClass(TEACHER_CLASS);
  return`<div class="promo-banner"><span class="pb-ico">🎓</span><div><strong>Term 3 ${y} is complete for ${escH(TEACHER_CLASS)}</strong><small>${nx==='Completed'?'Mark who has completed school, who repeats and who transfers.':'Choose who is promoted to '+escH(nx)+', who repeats and who transfers.'}</small></div><button type="button" class="reg-btn gold" data-nt="promote">Promote learners</button></div>`;}
@@ -1826,9 +1855,8 @@ $('backupPage').addEventListener('change',async e=>{
    Teachers (portal) only see the teachers of their own class. */
 const TSUBJ_KEY='edutrack_teacher_subjects';
 let TS=[],tsArm='',tsFrom='';
-try{const a=JSON.parse(store.get(TSUBJ_KEY));if(Array.isArray(a))TS=a.filter(e=>e&&e.id&&typeof e.name==='string'&&e.cls&&Array.isArray(e.subjects));}catch(e){TS=[];}
 BACKUP_KEYS.push(TSUBJ_KEY);
-function saveTS(){return store.set(TSUBJ_KEY,JSON.stringify(TS));}
+function saveTS(){saveConfigRemote();return true;}
 function tsUniq(a){const seen=new Set(),o=[];a.forEach(x=>{const t=String(x).trim(),k=t.toLowerCase();if(k&&!seen.has(k)){seen.add(k);o.push(t);}});return o;}
 function tsNewId(){return 't'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
 
