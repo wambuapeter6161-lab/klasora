@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
 import { getAuth, sendPasswordResetEmail, signInWithEmailAndPassword, createUserWithEmailAndPassword, deleteUser, updatePassword, signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
-import { getFirestore, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp, query, where, writeBatch, arrayUnion } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
@@ -14,7 +14,10 @@ const app = initializeApp(firebaseConfig, "klasoraSchoolSystem");
 const auth = getAuth(app);
 // Second app instance: creates staff logins without signing the school administrator out.
 const authProv = getAuth(initializeApp(firebaseConfig, "klasoraProvisioning"));
-const db = getFirestore(app);
+// Unsent entries are kept on the phone and delivered when the connection returns (falls back to the plain database if the browser blocks storage).
+let db;
+try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }
+catch (e) { db = getFirestore(app); }
 const norm = v => String(v || "").trim().toUpperCase();
 
 // Loads the signed-in user's profile (role, school) and checks the school is active.

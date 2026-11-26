@@ -744,7 +744,7 @@ function childRecordsBase(s){
 function parentView(page,u){
  const kids=childrenOf(u),rec=kids.map(k=>({k,r:childRecords(k)})),names=kids.map(k=>k.name).join(', ')||'your child';
  if(page==='attendance'){const rows=[];rec.forEach(x=>x.r.att.forEach(a=>rows.push([x.k.name,a.date,a.status,a.arrival,a.note])));
-  const c=t=>rows.filter(r=>r[2]===t).length;return{subtitle:rows.length?'Daily attendance this week for '+names+'.':'No attendance has been recorded yet for '+names+'.',stats:[['Present',String(c('Present'))],['Late',String(c('Late'))],['Absent',String(c('Absent'))]],heads:['CHILD','DATE','STATUS','ARRIVAL','NOTE'],rows};}
+  const c=t=>rows.filter(r=>r[2]===t).length;return{subtitle:rows.length?'Recent daily attendance for '+names+'.':'No attendance has been recorded yet for '+names+'.',stats:[['Present',String(c('Present'))],['Late',String(c('Late'))],['Absent',String(c('Absent'))]],heads:['CHILD','DATE','STATUS','ARRIVAL','NOTE'],rows};}
  if(page==='exams'){const rows=[];rec.forEach(x=>x.r.exams.forEach(e=>rows.push([x.k.name,e[0],e[1],e[2]+'%',LEVEL_FULL(e[2])])));
   const avg=rows.length?Math.round(rows.reduce((a,r)=>a+parseInt(r[3],10),0)/rows.length):null;
   return{subtitle:rows.length?'Term 3 assessment results for '+names+'.':'No results have been entered yet for '+names+'.',stats:[['Assessments',String(rows.length)],['Average',avg===null?'—':avg+'%'],['Overall Level',avg===null?'—':LEVEL_SHORT(avg)]],heads:['CHILD','ASSESSMENT','SUBJECT','SCORE','LEVEL'],rows};}
@@ -937,13 +937,13 @@ let regY=new Date().getFullYear(),regM=new Date().getMonth(),regClass=TEACHER_CL
 const regKey=(y,m)=>y+'-'+String(m+1).padStart(2,'0');
 function regGet(y,m,adm,d){return((REG[regKey(y,m)]||{})[adm]||{})[d]||'';}
 function regSave(){flushRegister();try{refreshAttendanceRows()}catch(e){}return true;}
-async function flushRegister(){
+async function flushRegister(quiet){
  if(!REG_DIRTY.size||!currentUser)return;
  const items=[...REG_DIRTY.values()];REG_DIRTY.clear();
  const byAdm={};allStudents().forEach(s=>{byAdm[s.adm]=s});
  const entries=items.map(it=>{const st=byAdm[it.adm];return st?{adm:it.adm,cls:st.cls,month:it.month,marks:(REG[it.month]||{})[it.adm]||{}}:null}).filter(Boolean);
  try{await KlasoraFirebase.saveAttendance(currentUser.schoolId,entries);}
- catch(e){items.forEach(it=>REG_DIRTY.set(it.adm+'|'+it.month,it));toast(e.code==='permission-denied'?'You do not have permission to mark this class.':'Attendance not saved yet. Check your internet; it will retry on your next change.');}
+ catch(e){items.forEach(it=>REG_DIRTY.set(it.adm+'|'+it.month,it));if(!quiet)toast(e.code==='permission-denied'?'You do not have permission to mark this class.':'Attendance not saved yet. Check your internet. It keeps retrying by itself.');}
 }
 function refreshAttendanceRows(){
  const byAdm={};allStudents().forEach(s=>{byAdm[s.adm]=s});const g={};
@@ -971,7 +971,7 @@ function registerRecords(adm){
  return out.sort((a,b)=>b.ts-a.ts);}
 function childRecords(s){
  const r=childRecordsBase(s),rg=registerRecords(s.adm);
- if(rg.length){r.att=rg.slice(0,5).map(x=>({date:x.date,day:x.day,status:x.status,arrival:'-',note:'Marked by class teacher'}));r.rate=Math.round(rg.filter(x=>x.status==='Present').length/rg.length*100);}
+ if(rg.length){r.att=rg.slice(0,31).map(x=>({date:x.date,day:x.day,status:x.status,arrival:'-',note:'Marked by class teacher'}));r.rate=Math.round(rg.filter(x=>x.status==='Present').length/rg.length*100);}
  const rr=latestReport(s);if(rr){r.exams=rr.rows.map(x=>[rr.label,x.subject,Math.round(x.pct)]);r.avg=Math.round(rr.avg);}
  return r;}
 
@@ -1036,14 +1036,14 @@ const RES_KEY='edutrack_results',SUBJ_KEY='edutrack_subjects',STUSUBJ_KEY='edutr
 let RES={marks:{},notes:{},gen:{}},SUBJ={added:{},removed:{}},STUSUBJ={};
 const RES_DIRTY=new Set();
 const saveRes=()=>{flushResults();return true;},saveSubj=()=>{saveConfigRemote();return true;},saveStuSubj=()=>{saveMetaRemote('stusubj',STUSUBJ);return true;};
-async function flushResults(){
+async function flushResults(quiet){
  if(!RES_DIRTY.size||!currentUser)return;
  const items=[...RES_DIRTY];RES_DIRTY.clear();
  const byAdm={};allStudents().forEach(s=>{byAdm[s.adm]=s});
  const entries=items.map(it=>{const[adm,k]=it.split('|'),st=byAdm[adm];if(!st)return null;const p=k.split('-');
   return{adm,cls:st.cls,examKey:k,marks:(RES.marks[k]||{})[adm]||{},note:((RES.notes[p[0]+'-'+p[1]]||{})[adm])||null,gen:RES.gen[k+'|'+st.cls]||''};}).filter(Boolean);
  try{await KlasoraFirebase.saveResults(currentUser.schoolId,entries);}
- catch(e){items.forEach(i=>RES_DIRTY.add(i));toast(e.code==='permission-denied'?'You do not have permission to save these results.':'Results not saved yet. Check your internet; they will retry on your next change.');}
+ catch(e){items.forEach(i=>RES_DIRTY.add(i));if(!quiet)toast(e.code==='permission-denied'?'You do not have permission to save these results.':'Results not saved yet. Check your internet. It keeps retrying by itself.');}
 }
 async function saveMetaRemote(key,val){
  if(!currentUser||currentUser.role==='parent')return;
@@ -2734,3 +2734,45 @@ MSD.attendance=[
  ()=>{const T=attToday(),lv={lower:0,upper:0,junior:0};T.rows.forEach(r=>{lv[LEVEL_OF(r.cls)]+=r.p;});return{sub:T.marked?fmtAttDate(todayIso())+' · '+T.rate+'% of learners marked':'No register marked yet today',sections:[['PRESENT BY LEVEL',LEVELS3(String(lv.lower),String(lv.upper),String(lv.junior))]]};},
  ()=>{const T=attToday(),lv={lower:0,upper:0,junior:0};T.rows.forEach(r=>{lv[LEVEL_OF(r.cls)]+=r.a;});return{sub:T.marked?fmtAttDate(todayIso())+' · learners not in school':'No register marked yet today',sections:[['ABSENT BY LEVEL',LEVELS3(String(lv.lower),String(lv.upper),String(lv.junior))],['ABSENT TODAY',T.rows.filter(r=>r.a).map(r=>[r.cls,r.a+' absent']).concat(T.rows.some(r=>r.a)?[]:[['None','-']])]]};},
  ()=>{const T=attToday();return{sub:'Class registers marked today',sections:[['MARKED',T.rows.length?T.rows.map(r=>[r.cls,r.p+' present · '+r.a+' absent']):[['None yet','-']]],['NOT MARKED YET',T.notMarked.length?T.notMarked.slice(0,12).map(c=>[c,'Waiting for the class teacher']):[['All classes marked','-']]]]};}];
+
+/* ================= v2.9: every screen stays current, and no entry is left unsaved ================= */
+const withTimeout=(p,ms)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(Object.assign(new Error('timeout'),{code:'timeout'})),ms))]);
+const liveSig=()=>{try{return JSON.stringify([REG,RES.marks,RES.notes,RES.gen,PAYLOG,FEESTR,PROMO.log,EXTRA.map(x=>x.adm+x.cls+x.status)])}catch(e){return String(Date.now())}};
+const LIVE_AT={};let _liveBusy=false;
+const LIVE={
+ async stu(r){const list=await withTimeout(KlasoraFirebase.loadStudents(r),25000);EXTRA=list.map(x=>({name:x.name,adm:x.adm,cls:x.cls,gender:x.gender,dob:x.dob||'',parent:x.parent||'',relation:x.relation||'Guardian',phone:x.phone||'',status:x.status||'Active',date:''}));rebuildStudents();},
+ async promo(r){const P={log:[],overrides:{},done:{}};(await withTimeout(KlasoraFirebase.loadPromotions(r),25000)).sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(x=>{P.log.push({adm:x.adm,name:x.name,from:x.cls,to:x.to,action:x.action,year:x.year,date:x.date});if(x.action==='promote')P.overrides[x.adm]={cls:x.to,status:'Active'};else if(x.action==='complete')P.overrides[x.adm]={cls:x.cls,status:'Completed'};else if(x.action==='transfer')P.overrides[x.adm]={cls:x.cls,status:'Transferred'};if(!P.done[x.year+'|'+x.cls])P.done[x.year+'|'+x.cls]=x.date;});PROMO=P;rebuildStudents();},
+ async att(r){(await withTimeout(KlasoraFirebase.loadAttendance(r),25000)).forEach(x=>{if(REG_DIRTY.has(x.adm+'|'+x.month))return;REG[x.month]=REG[x.month]||{};REG[x.month][x.adm]=x.marks||{};});refreshAttendanceRows();},
+ async res(r){(await withTimeout(KlasoraFirebase.loadResults(r),25000)).forEach(x=>{const k=x.examKey,p=k.split('-');if(RES_DIRTY.has(x.adm+'|'+k))return;if(x.marks&&Object.keys(x.marks).length){RES.marks[k]=RES.marks[k]||{};RES.marks[k][x.adm]=x.marks;}if(x.note){const nk=p[0]+'-'+p[1];RES.notes[nk]=RES.notes[nk]||{};RES.notes[nk][x.adm]=x.note;}if(x.gen)RES.gen[k+'|'+x.cls]=x.gen;});},
+ async fees(r){const pl=(await withTimeout(KlasoraFirebase.loadPayments(r),25000)).filter(p=>!p.reversed).map(p=>({id:p.id,rcpt:p.rcpt,adm:p.adm,year:p.year,term:p.term,amount:p.amount,method:p.method,ref:p.ref||'',date:p.date,by:p.by||''}));let fs=null;if(['admin','accountant','parent'].includes(r.profile.role)){const m=await withTimeout(KlasoraFirebase.loadMeta(r.schoolId,['feestr']),25000);if(m.feestr&&typeof m.feestr==='object'&&!Array.isArray(m.feestr))fs=m.feestr;}PAYLOG=pl;if(fs)FEESTR=fs;_fsCache={};}
+};
+/* Which data each role needs refreshed, kept small so the free Firebase read quota is never wasted. */
+function liveScopes(role,page){
+ if(role==='parent')return['stu','promo','att','res','fees'];
+ const m={attendance:['att'],register:['att'],exams:['res'],results:['res'],fees:['fees'],students:['stu']}[page]||[];
+ return m.filter(k=>!(k==='stu'&&role==='admin')&&!(k==='res'&&role==='accountant')&&!(k==='att'&&role==='accountant')&&!(k==='fees'&&role==='teacher'));
+}
+async function refreshLiveData(page,force){
+ if(!currentUser||_liveBusy||document.hidden||currentUser.mustChange)return;
+ if(!currentUser._liveStart)currentUser._liveStart=Date.now();   // data was just loaded at sign-in
+ if(!force&&Date.now()-currentUser._liveStart<45000)return;
+ const role=currentUser.role,scopes=liveScopes(role,page||activePage()).filter(k=>force||Date.now()-(LIVE_AT[k]||0)>60000);
+ if(!scopes.length)return;
+ _liveBusy=true;const before=liveSig(),r=curR();
+ try{
+  for(const k of scopes){try{await LIVE[k](r);LIVE_AT[k]=Date.now();}catch(e){if(e&&e.code==='permission-denied'){const ok=await KlasoraFirebase.stillActive(currentUser.schoolId);if(!ok){signOut('Your account or school is no longer active. Please contact your school administrator or Klasora support.');return;}}}}
+  if(currentUser&&liveSig()!==before){const pg=activePage();try{if(pg==='register'&&typeof regRerender==='function')regRerender();else _showPageBeforeLive(pg);}catch(e){}}
+ }finally{_liveBusy=false;}
+}
+const _showPageBeforeLive=showPage;
+showPage=function(page){const x=_showPageBeforeLive.apply(this,arguments);try{refreshLiveData(page);}catch(e){}return x;};
+setInterval(()=>{if(currentUser&&currentUser.role==='parent')refreshLiveData(null,false);},120000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentUser)refreshLiveData(null,false);});
+window.addEventListener('online',()=>{if(currentUser)refreshLiveData(null,true);});
+/* Entries that could not be sent (poor network) are retried every 15 seconds, and sent as soon as the page is left or the phone is back online. */
+const flushPending=()=>{if(!currentUser)return;try{flushRegister(true);}catch(e){}try{flushResults(true);}catch(e){}};
+setInterval(flushPending,15000);
+window.addEventListener('online',flushPending);
+window.addEventListener('pagehide',flushPending);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)flushPending();});
+
