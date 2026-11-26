@@ -603,3 +603,32 @@ tr.row-click:focus-visible{outline:2px solid #4b93ff;outline-offset:-2px}
 
 /* hidden while a saved sign-in is being restored */
 .login-screen.restoring{visibility:hidden}
+
+/* ===== Windows desktop app only (Electron): PC-style full-screen windows =====
+   Applied only when html has class "klasora-win" (added by a small script in index.html
+   when the page runs inside the Windows app). Android and the normal website are not affected. */
+html.klasora-win .modal-backdrop{padding:0;place-items:stretch;background:#f3f6fc}
+html.klasora-win .modal-backdrop .modal{
+  width:100vw;max-width:none;height:100vh;max-height:none;border-radius:0;box-shadow:none;
+  padding:26px 48px 34px;overflow:auto}
+html.klasora-win .modal-head{position:sticky;top:-26px;z-index:3;background:#fff;margin:-26px -48px 18px;padding:20px 48px 14px;border-bottom:1px solid var(--line)}
+html.klasora-win .modal-head h3{font-size:22px}
+html.klasora-win .modal-head p{font-size:12px}
+html.klasora-win .modal-close{width:42px;height:42px;font-size:26px}
+/* forms and fields spread across the width (landscape) */
+html.klasora-win .form-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px 32px}
+html.klasora-win .form-fields .field-hint{grid-column:1/-1}
+html.klasora-win .form-section{font-size:11px;margin:22px 0 10px}
+html.klasora-win .modal .field input,html.klasora-win .modal .field select{font-size:14px}
+html.klasora-win .modal-actions{justify-content:flex-end;gap:12px;margin-top:24px}
+html.klasora-win .modal-actions .btn{min-width:150px}
+/* small pickers stay compact on top of the full-screen window */
+html.klasora-win #dobBackdrop,html.klasora-win #pwBackdrop{padding:15px;place-items:center;background:#10213b80}
+html.klasora-win #dobBackdrop .modal,html.klasora-win #pwBackdrop .modal{width:min(440px,100%);height:auto;max-height:92vh;border-radius:16px;padding:21px;box-shadow:0 20px 60px #10213b40}
+html.klasora-win #dobBackdrop .modal-head,html.klasora-win #pwBackdrop .modal-head{position:static;margin:0 0 12px;padding:0;border:0}
+html.klasora-win #dobBackdrop .modal-head h3,html.klasora-win #pwBackdrop .modal-head h3{font-size:16px}
+/* sign-in screen suits a wide screen */
+html.klasora-win .login-card{max-width:460px;padding:34px 32px}
+@media print{
+  html.klasora-win #cardBackdrop,html.klasora-win #cardBackdrop .modal{height:auto;padding:0;background:#fff}
+}
