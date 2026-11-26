@@ -257,7 +257,14 @@ async function savePromoRemote(added){
 async function loadUsersRemote(r){
  USERS.length=0;
  if(r.profile.role!=='admin'){refreshUsersModule();return}
- try{(await KlasoraFirebase.listSchoolUsers(r.schoolId)).forEach(p=>{if(ROLES[p.role])USERS.push(fbUserToLocal(p,r.schoolId));});}
+ try{
+  /* Only this school's own accounts: same school code, a real app role, and no administrator other than the one signed in. */
+  const sid=String(r.schoolId||'').trim().toUpperCase(),me=r.user&&r.user.uid,seen=new Set();
+  (await KlasoraFirebase.listSchoolUsers(r.schoolId)).forEach(p=>{
+   if(!ROLES[p.role]||String(p.schoolId||'').trim().toUpperCase()!==sid)return;
+   if(p.role==='admin'&&p.uid!==me)return;
+   if(seen.has(p.uid))return;seen.add(p.uid);
+   USERS.push(fbUserToLocal(p,r.schoolId));});}
  catch(e){setTimeout(()=>toast('Could not load staff accounts ('+(e.code||'error')+').'),900);}
  refreshUsersModule();
 }
@@ -876,7 +883,7 @@ $('backDash').onclick=()=>showPage('dashboard');
 const PROFILE_KEY='edutrack_profiles';
 function loadProfiles(){try{return JSON.parse(store.get(PROFILE_KEY))||{}}catch(e){return{}}}
 function applyProfiles(){const p=loadProfiles();USERS.forEach(u=>{if(p[u.id])Object.assign(u,p[u.id]);u.initials=schoolInitials(u.name);});refreshUsersModule();}
-function refreshUsersModule(){modules.users.heads=['USER','USERNAME','ROLE','PHONE','LINKED LEARNERS','STATUS'];modules.users.rows=USERS.map(u=>[u.name,u.username,ROLES[u.role].label,u.phone?fmtPhone(String(u.phone).replace(/\s/g,'')):'—',u.role==='parent'?(childrenOf(u).map(c=>c.name).join(', ')||'—'):u.role==='teacher'&&u.className?'Class '+u.className:'—',u.status]);modules.users.stats=[['User Accounts',String(USERS.length)],['Parent Accounts',String(USERS.filter(u=>u.role==='parent').length)],['Signed In Now','1']];}
+function refreshUsersModule(){for(let i=USERS.length-1;i>=0;i--){const u=USERS[i];if(u.role==='admin'&&currentUser&&u.uid&&u.uid!==currentUser.uid)USERS.splice(i,1);}modules.users.heads=['USER','USERNAME','ROLE','PHONE','LINKED LEARNERS','STATUS'];modules.users.rows=USERS.map(u=>[u.name,u.username,ROLES[u.role].label,u.phone?fmtPhone(String(u.phone).replace(/\s/g,'')):'—',u.role==='parent'?(childrenOf(u).map(c=>c.name).join(', ')||'—'):u.role==='teacher'&&u.className?'Class '+u.className:'—',u.status]);modules.users.stats=[['User Accounts',String(USERS.length)],['Parent Accounts',String(USERS.filter(u=>u.role==='parent').length)],['Signed In Now','1']];}
 function paintAvatar(el,u,photo){const ph=photo===undefined?u.photo:photo;
  if(ph){el.textContent='';el.style.backgroundImage=`url(${ph})`;el.style.backgroundSize='cover';el.style.backgroundPosition='center';}
  else{el.style.backgroundImage='';el.textContent=u.initials;}}
