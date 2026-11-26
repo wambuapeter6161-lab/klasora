@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="klasora-192.png" />
   <link rel="manifest" href="manifest.webmanifest" />
   <title>Klasora | School Management</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=3" />
 </head>
 <body>
   <div class="klasora-splash" id="klasoraSplash" aria-label="Klasora starting"><img src="klasora-icon.svg" alt="" /><strong>KLASORA</strong><span>INTELLIGENT SCHOOL MANAGEMENT</span><small>A WILLBROD LABS PRODUCT</small></div>
@@ -22,6 +22,12 @@
       <p class="login-sub" id="loginSub">Sign in to your school account</p>
       <p class="login-motto hidden" id="loginMotto"></p>
       <div class="login-msg hidden" id="loginMsg"></div>
+      <div class="role-tabs" id="roleTabs" role="tablist" aria-label="Account type">
+        <button type="button" class="role-tab" data-role="admin" role="tab">Admin</button>
+        <button type="button" class="role-tab" data-role="teacher" role="tab">Teacher</button>
+        <button type="button" class="role-tab" data-role="accountant" role="tab">Accountant</button>
+        <button type="button" class="role-tab" data-role="parent" role="tab">Parent</button>
+      </div>
       <form id="loginForm" autocomplete="off">
         <div class="field"><label for="loginSchoolCode">School code</label><input id="loginSchoolCode" type="text" autocapitalize="characters" placeholder="Enter school code" required /></div>
         <div class="field"><label for="loginEmail">Email</label><input id="loginEmail" type="email" autocapitalize="none" placeholder="Enter your email" required /></div>
@@ -51,7 +57,6 @@
         <button type="submit" class="btn btn-primary login-btn">Create Account</button>
         <button type="button" class="link-btn" id="backToLogin">‹ Back to sign in</button>
       </form>
-      <div class="demo-accounts" id="demoBox"><p>DEMO ACCOUNTS · TAP TO FILL</p><div class="demo-chips" id="demoChips"></div></div>
       <p class="login-foot">Secure sign-in by Klasora. Your school administrator issues your account.</p>
     </div>
   </div>
@@ -202,12 +207,11 @@
           <div class="module-stats" id="moduleStats"></div>
           <div class="panel module-panel"><div class="panel-heading"><div><h3 id="moduleTitle">Records</h3><p id="moduleDescription">Manage school information in one place.</p></div><button class="btn btn-light" onclick="exportPage()">⇩ Export</button></div>
             <div class="table-wrap"><table><thead id="moduleHead"></thead><tbody id="moduleBody"></tbody></table></div>
-            <div class="table-footer"><span id="recordCount">Showing sample records</span><div class="pager" id="pager"></div></div>
+            <div class="table-footer"><span id="recordCount">Loading records…</span><div class="pager" id="pager"></div></div>
           </div>
-          <div class="notice"><span>ⓘ</span><div><strong>Demo workspace</strong><p>This version demonstrates the interface and navigation. Records are sample data stored only in this browser session; sign-in, cloud database, payments and multi-school security will be added in the development stages.</p></div></div>
         </div>
       </section>
-      <footer class="footer"><span>© 2026 Klasora. A Willbrod Labs product.</span><span>School Management System <b>•</b> Demo Version 3.0</span></footer>
+      <footer class="footer"><span>© 2026 Klasora. A Willbrod Labs product.</span><span>School Management System</span></footer>
     </main>
   </div>
   <div class="overlay" id="overlay"></div>
@@ -253,6 +257,6 @@
   <div class="modal-backdrop hidden" id="modalBackdrop"><div class="modal"><div class="modal-head"><div><h3 id="modalTitle">Add Record</h3><p>Enter the details below.</p></div><button class="modal-close" id="modalClose">×</button></div><form id="quickForm"><div id="formFields" class="form-fields"></div><div class="modal-actions"><button type="button" class="btn btn-light" id="cancelModal">Cancel</button><button type="submit" class="btn btn-primary">Save Record</button></div></form></div></div>
   <div class="toast" id="toast"></div>
   <script type="module" src="firebase-auth.js?v=2"></script>
-  <script src="app.js?v=fb2"></script>
+  <script src="app.js?v=fb3"></script>
 </body>
 </html>

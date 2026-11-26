@@ -39,13 +39,6 @@ body{font-family:'Manrope','DM Sans',Arial,sans-serif;background:#f3f6fc;color:#
 .login-msg{border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.45;margin-bottom:13px;background:#fdecec;color:#b42318;border:1px solid #f8d2d0}
 .login-msg.info{background:#eaf2ff;color:#1f4f9a;border-color:#d3e4ff}
 .login-btn{width:100%;padding:13px;font-size:12px}
-.demo-accounts{margin-top:20px;padding-top:16px;border-top:1px solid #e9edf3}
-.demo-accounts p{font-size:9px;font-weight:800;letter-spacing:1px;color:#a3adbb;margin:0 0 9px}
-.demo-chips{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.demo-chip{border:1px solid #e2e9f3;background:#f7f9fd;border-radius:9px;padding:9px 10px;text-align:left;cursor:pointer;font-family:'DM Sans'}
-.demo-chip:active{background:#eaf2ff}
-.demo-chip strong{display:block;font-size:11px;color:#273b59}
-.demo-chip small{display:block;font-size:9px;color:#8290a4;margin-top:2px}
 .login-foot{font-size:10px;color:#98a3b3;margin:14px 0 0;line-height:1.5}
 .signout-full{width:100%;margin-top:10px}
 .top-actions{position:relative}.top-user{cursor:pointer}
@@ -602,3 +595,8 @@ tr.row-click:focus-visible{outline:2px solid #4b93ff;outline-offset:-2px}
 .klasora-splash small{position:absolute;bottom:34px;font-size:9px;letter-spacing:1.6px;color:#b8c5d8}
 .klasora-splash.is-hidden{opacity:0;visibility:hidden;pointer-events:none}
 @media(max-width:420px){.klasora-mini-mark{width:29px;height:29px}}
+
+/* login: account type selector */
+.role-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:#eef2f9;border-radius:11px;padding:4px;margin:0 0 16px}
+.role-tab{border:0;background:transparent;border-radius:8px;padding:9px 2px;font:700 11px 'DM Sans',sans-serif;color:#5b6b82;cursor:pointer}
+.role-tab.on{background:#fff;color:#173b70;box-shadow:0 1px 4px #0a1f4226}

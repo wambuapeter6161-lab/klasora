@@ -287,6 +287,7 @@ $('loginForm').addEventListener('submit',async e=>{
  const btn=e.submitter;if(btn)btn.disabled=true;
  try{
   const r=await KlasoraFirebase.signIn(email,pass,code);
+  if(r.profile.role!==loginRole){const an=LOGIN_ROLES[r.profile.role]?LOGIN_ROLES[r.profile.role].label:'different';try{await KlasoraFirebase.signOut()}catch(_e){}showLoginMsg(`This sign-in belongs to a ${an} account. Select “${an}” above and try again.`);$('loginPass').value='';return}
   store.del(LOCK_KEY);
   await beginFirebaseSession(r,true);
  }catch(err){
@@ -433,7 +434,7 @@ function renderTable(rows,reset){
  const n=rows.length,pages=Math.max(1,Math.ceil(n/pgSize()));tablePage=Math.min(Math.max(1,tablePage),pages);
  const from=(tablePage-1)*pgSize(),slice=rows.slice(from,from+pgSize());
  $('moduleBody').innerHTML=slice.length?slice.map((r,i)=>'<tr'+(r.meta?` class="row-click" data-ri="${from+i}" tabindex="0"`:'')+'>'+r.map((c,j)=>`<td>${cellHtml(c,j,r)}</td>`).join('')+'</tr>').join(''):`<tr><td colspan="6" style="text-align:center;color:#8290a4;padding:22px">${activePage()==='attendance'&&!$('moduleSearch').value&&currentUser.role!=='parent'?'No register has been marked yet. This page fills in by itself once class teachers mark their registers.':'No records found.'}</td></tr>`;
- $('recordCount').textContent=n?`Showing ${from+1}–${from+slice.length} of ${n} sample record${n===1?'':'s'}`:'No records found';
+ $('recordCount').textContent=n?`Showing ${from+1}–${from+slice.length} of ${n} record${n===1?'':'s'}`:'No records found';
  $('pager').innerHTML=pages<2?'':`<button class="page-btn" data-pg="prev" ${tablePage===1?'disabled':''}>‹</button>`+pageList(tablePage,pages).map(x=>x==='…'?'<span class="page-gap">…</span>':`<button class="page-btn${x===tablePage?' current':''}" data-pg="${x}">${x}</button>`).join('')+`<button class="page-btn" data-pg="next" ${tablePage===pages?'disabled':''}>›</button>`;
 }
 $('pager').addEventListener('click',e=>{const b=e.target.closest('.page-btn');if(!b||b.disabled)return;const v=b.dataset.pg;
@@ -462,7 +463,7 @@ function openQuickAdd(){
 }
 function closeModal(){modal.classList.add('hidden');}
 $('modalClose').onclick=closeModal;$('cancelModal').onclick=closeModal;modal.addEventListener('click',e=>{if(e.target===modal)closeModal()});
-$('quickForm').addEventListener('submit',e=>{e.preventDefault();if(!currentUser||!canAdd(activePage())){closeModal();toast('Permission denied.');return}closeModal();toast('Demo record saved in this session.');});
+$('quickForm').addEventListener('submit',e=>{e.preventDefault();if(!currentUser||!canAdd(activePage())){closeModal();toast('Permission denied.');return}closeModal();toast('Saving is not available for this section yet.');});
 $('moduleSearch').addEventListener('input',e=>{if(!currentUser)return;const m=getModule(activePage());if(!m)return;const q=e.target.value.toLowerCase();renderTable(m.rows.filter(r=>r.join(' ').toLowerCase().includes(q)),true);});
 $('globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'&&currentUser){const q=e.target.value.toLowerCase().trim();const match=Object.keys(modules).filter(k=>canView(k)).find(k=>modules[k].title.toLowerCase().includes(q));if(q&&match)showPage(match);else toast(q?'No matching section found.':'Type a section name to search.');}});
 $('todayLabel').textContent=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).toUpperCase();
@@ -1334,7 +1335,7 @@ function renderPd(){
  const u=accountFor(pdPhone);if(!u)return;const kids=childrenOf(u),stateTxt=u.mustChange?'Temporary password issued. Parent must set a new one':'Active';
  const wa='https://wa.me/254'+pdPhone.slice(1)+'?text='+encodeURIComponent(`Hello ${u.name}, your Klasora temporary password is ${pdTemp}. Sign in with your phone number ${pdPhone} and choose a new password.`);
  $('pdModal').innerHTML=`<div class="modal-head"><div><h3>${escH(u.name)}</h3><p>Parent portal login details</p></div><button class="modal-close" data-pd="close">×</button></div>
- ${sec('LOGIN DETAILS',[['Sign-in username',fmtPhone(u.linkPhone)],['Password','Hidden for security'],['Account status',stateTxt],['Account created',u.created||'Demo account'],['Last password reset',u.pwReset?new Date(u.pwReset).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Never']])}
+ ${sec('LOGIN DETAILS',[['Sign-in username',fmtPhone(u.linkPhone)],['Password','Hidden for security'],['Account status',stateTxt],['Account created',u.created||'—'],['Last password reset',u.pwReset?new Date(u.pwReset).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'Never']])}
  ${sec('LINKED LEARNERS',kids.length?kids.map(k=>[k.name,k.cls+' · '+k.adm]):[['None','-']])}
  ${pdTemp?`<div class="pd-temp"><small>TEMPORARY PASSWORD · SHOWN ONCE</small><strong>${pdTemp}</strong><div class="bk-actions"><button type="button" class="reg-btn" data-pd="copy">Copy</button><a class="reg-btn green" href="${wa}" target="_blank" rel="noopener">Send on WhatsApp</a></div></div><div class="bk-note warn">The old password no longer works. The parent signs in with the phone number and this temporary password, then chooses a new one.</div>`:
  `<div class="bk-note">Passwords are never shown, so they cannot be read by anyone. If a parent forgot theirs, reset it here and give them the temporary password.</div><div class="modal-actions"><button type="button" class="btn btn-light" data-pd="close">Close</button><button type="button" class="btn btn-primary" data-pd="reset" id="pdReset">Reset password</button></div>`}`;}
@@ -1406,9 +1407,25 @@ function activateTeacher(username,pass,cls){
 const gateLocked=()=>{const l=getLock(),n=Date.now();return l.until>n?Math.ceil((l.until-n)/1000):0;};
 function gateFail(){const l=getLock();l.fails=(l.fails||0)+1;if(l.fails>=MAX_FAILS){l.until=Date.now()+LOCK_SECONDS*1000;l.fails=0;}store.set(LOCK_KEY,JSON.stringify(l));return l.until>Date.now();}
 
+/* ----- login screen: account type ----- */
+const LOGIN_ROLES={
+ admin:{label:'Administrator',sub:'Sign in with the email and password issued when your school was registered.'},
+ teacher:{label:'Teacher',sub:'Sign in with the email and password your school administrator created for you.'},
+ accountant:{label:'Accountant',sub:'Sign in with the email and password your school administrator created for you.'},
+ parent:{label:'Parent',sub:'Sign in with the email and password your child’s school created for you.'}
+};
+let loginRole=store.get('klasora_login_role');if(!LOGIN_ROLES[loginRole])loginRole='admin';
+function setLoginRole(r){
+ loginRole=r;store.set('klasora_login_role',r);
+ document.querySelectorAll('#roleTabs .role-tab').forEach(b=>{const on=b.dataset.role===r;b.classList.toggle('on',on);b.setAttribute('aria-selected',on?'true':'false')});
+ $('loginSub').textContent=LOGIN_ROLES[r].sub;showLoginMsg('');
+}
+$('roleTabs').addEventListener('click',e=>{const b=e.target.closest('.role-tab');if(b)setLoginRole(b.dataset.role)});
+setLoginRole(loginRole);
+
 /* ----- login screen: parent / teacher panels ----- */
 function showAuthPanel(w){
- const m={login:['loginForm','demoBox','showSignup','showTeacherSignup'],parent:['signupForm'],teacher:['teacherForm']};
+ const m={login:['loginForm','showSignup','showTeacherSignup'],parent:['signupForm'],teacher:['teacherForm']};
  Object.keys(m).forEach(k=>m[k].forEach(id=>$(id).classList.toggle('hidden',k!==w)));$('suMsg').classList.add('hidden');$('tuMsg').classList.add('hidden');showLoginMsg('');}
 function fillClassSelects(){const cur=$('tuClass').value;$('tuClass').innerHTML='<option value="">Select your class</option>'+classKeys().map(c=>`<option>${c}</option>`).join('');if(classKeys().includes(cur))$('tuClass').value=cur;}
 fillClassSelects();
@@ -1863,7 +1880,7 @@ function renderBackup(){
   <section class="bk-card bk-blue"><div class="bk-icon">♻️</div><h3>Restore from backup</h3><p>Choose a backup file you saved earlier, or paste backup text. Nothing changes until you tap Restore now.</p><div class="bk-actions"><label class="bk-btn" for="bkRestoreFile">Choose backup file</label><input type="file" id="bkRestoreFile" accept=".json,application/json,text/plain" class="hidden-file"></div><textarea id="bkPaste" class="bk-paste" rows="2" placeholder="…or paste backup text here"></textarea><div class="bk-actions"><button class="bk-btn ghost" data-act="restore-text">Check pasted text</button></div><div id="restoreArea"></div></section>`:'')+`
   <section class="bk-card bk-orange"><div class="bk-icon">📗</div><h3>Excel import and export</h3><p>${admin?'Bring in your existing Excel records (students with parent phones, staff, fees, expenses, library, inventory) or take your data out to Excel.':'Import fee and expense records from Excel, or export them to Excel.'} CSV files work too.</p>
    <div class="bk-actions"><label class="bk-btn" for="impFile">⬆ Import from Excel / CSV</label><input type="file" id="impFile" accept=".xlsx,.xlsm,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="hidden-file"><button class="bk-btn ghost" data-act="xlsx-all">⬇ Export to Excel</button><button class="bk-btn ghost" data-act="template">Blank template</button></div></section></div>
-  <div id="importArea"></div>`+(admin?`<div class="bk-reset"><button class="bk-btn danger" data-act="reset" id="bkReset">Reset to sample data</button><small>Removes imported and newly registered students and imported records, and brings the sample records back. Parent accounts, profiles and school details stay.</small></div>
+  <div id="importArea"></div>`+(admin?`<div class="bk-reset"><button class="bk-btn danger" data-act="reset" id="bkReset">Reset imported data</button><small>Removes imported and newly registered students and imported records. Parent accounts, profiles and school details stay.</small></div>
   <section class="bk-card" style="margin-top:18px;border:1px solid #f1c4c4"><div class="bk-icon">🔐</div><h3>Full School Data Reset</h3><p>This permanently removes this school's stored learners, parent accounts, staff accounts, attendance, results, fees, payments, messages and settings from this browser. The Willbrod Labs central school registry and school administrator login are not deleted.</p><div class="field"><label>Create / change separate reset password</label><input id="schoolResetPassword" type="password" placeholder="At least 10 characters"></div><div class="field"><label>Confirm reset password</label><input id="schoolResetPassword2" type="password" placeholder="Repeat reset password"></div><button class="bk-btn ghost" data-act="save-reset-key">Save reset password</button><div class="field" style="margin-top:14px"><label>Reset password</label><input id="schoolResetVerify" type="password" placeholder="Enter reset password"></div><div class="field"><label>Type school code to confirm</label><input id="schoolResetCode" placeholder="Type the exact school code"></div><button class="bk-btn danger" data-act="reset-full">Erase all school data</button><small>For safety, download a fresh backup first. This is a local prototype; production reset will require server-side authorisation and an independently verified backup.</small></section>`:'');
  IMPORT_STATE=null;RESTORE=null;}
 function importErr(e){const m=String(e&&e.message||e);
@@ -1889,7 +1906,7 @@ function renderImportPreview(){
   ${r.warns.length?`<div class="imp-meta">Warnings: ${r.warns.slice(0,3).map(escH).join('; ')}${r.warns.length>3?'…':''}</div>`:''}
   <div class="imp-prev">${r.recs.slice(0,3).map(x=>escH(Array.isArray(x)?x.slice(0,4).join(' · '):[x.name,x.cls,x.parent,fmtPhone(x.phone)].filter(Boolean).join(' · '))).join('<br>')}</div>`}</div>`;}).join('')+
  (st.unknown.length?`<div class="bk-note">Sheets not recognised and skipped: ${escH(st.unknown.join(', '))}</div>`:'')+
- `<div class="imp-mode"><label><input type="radio" name="impMode" value="add" checked> <b>Add to existing records</b><small>Duplicates (same UPI No, code or learner) are skipped.</small></label><label><input type="radio" name="impMode" value="replace"> <b>Replace existing records</b><small>Removes the sample records for the chosen datasets and starts fresh from your file.</small></label></div>
+ `<div class="imp-mode"><label><input type="radio" name="impMode" value="add" checked> <b>Add to existing records</b><small>Duplicates (same UPI No, code or learner) are skipped.</small></label><label><input type="radio" name="impMode" value="replace"> <b>Replace existing records</b><small>Removes the existing records for the chosen datasets and starts fresh from your file.</small></label></div>
  <div class="bk-actions"><button class="bk-btn" data-act="import-apply">Import selected</button><button class="bk-btn ghost dark" data-act="import-cancel">Cancel</button></div>`;}
 function doImport(){
  const st=IMPORT_STATE;if(!st)return;const mode=(document.querySelector('input[name="impMode"]:checked')||{}).value||'add',secs=[];
@@ -1906,7 +1923,7 @@ $('backupPage').addEventListener('click',e=>{const b=e.target.closest('[data-act
  else if(a==='save-reset-key'){const p1=$('schoolResetPassword').value,p2=$('schoolResetPassword2').value;if(p1.length<10||p1!==p2){toast('Use at least 10 characters and make sure both passwords match.');return}const salt=[...randBytes(12)].map(x=>x.toString(16).padStart(2,'0')).join('');store.set(RESET_PASS_KEY,JSON.stringify({salt,hash:hashPass(p1,salt),updated:new Date().toISOString()}));$('schoolResetPassword').value='';$('schoolResetPassword2').value='';toast('Separate school reset password saved.');}
  else if(a==='reset-full'){const saved=store.get(RESET_PASS_KEY);if(!saved){toast('Create the separate reset password first.');return}let cred;try{cred=JSON.parse(saved)}catch(e){}if(!cred||hashPass($('schoolResetVerify').value,cred.salt)!==cred.hash){toast('Incorrect reset password.');return}const expected=String(currentUser.schoolCode||'GFA001').toUpperCase();if($('schoolResetCode').value.trim().toUpperCase()!==expected){toast('The school code does not match.');return}if(!store.get(LASTBK_KEY)){toast('Download a fresh backup before erasing school data.');return}if(!confirm('FINAL WARNING: This will erase all school records in this browser. Continue?'))return;BACKUP_KEYS.filter(k=>k!==CREDS_KEY).forEach(k=>store.del(k));store.del(RESET_PASS_KEY);store.del(LASTBK_KEY);toast('School data reset. Signing out…');setTimeout(()=>{store.del(SESSION_KEY);location.reload()},700);}
  else if(a==='reset'){if(Date.now()-resetArmed<5000){store.del(NEWSTU_KEY);store.del(IMP_KEY);store.del(FLAG_KEY);toast('Reset done. Reloading…');setTimeout(()=>location.reload(),600);}
-  else{resetArmed=Date.now();b.textContent='Tap again to confirm reset';setTimeout(()=>{const x=$('bkReset');if(x)x.textContent='Reset to sample data';},5000);}}});
+  else{resetArmed=Date.now();b.textContent='Tap again to confirm reset';setTimeout(()=>{const x=$('bkReset');if(x)x.textContent='Reset imported data';},5000);}}});
 $('backupPage').addEventListener('change',async e=>{
  if(e.target.id==='bkRestoreFile'){const f=e.target.files[0];e.target.value='';if(f)prepareRestore(await f.text());}
  if(e.target.id==='impFile'){const f=e.target.files[0];e.target.value='';if(f)handleImportFile(f);}});
