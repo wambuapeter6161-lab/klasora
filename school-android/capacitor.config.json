@@ -1,0 +1,9 @@
+{
+  "appId": "com.willbrodlabs.klasora.school",
+  "appName": "Klasora",
+  "webDir": "www",
+  "backgroundColor": "#101b32",
+  "android": {
+    "allowMixedContent": false
+  }
+}
