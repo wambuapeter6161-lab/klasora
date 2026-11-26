@@ -18,6 +18,72 @@ const secondaryApp = initializeApp(firebaseConfig, 'klasora-secondary');
 const secondaryAuth = getAuth(secondaryApp);
 const SUPER_ADMIN_UID = "NiquOT8pm7hha8mM6nlsuYvN0tr1";
 
+/* ---------- Klasora School System (Firebase B) link ----------
+   Schools registered here are also created in the School System project, so their
+   administrators can sign in there. Only the Super Admin's own login is used: no secrets. */
+const firebaseConfigB = {
+  apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
+  authDomain: "klasora-school.firebaseapp.com",
+  projectId: "klasora-school",
+  storageBucket: "klasora-school.firebasestorage.app",
+  messagingSenderId: "274741090812",
+  appId: "1:274741090812:web:77ce9fdfb32f42d0383a79"
+};
+const B_SUPER_UID = "PfUW9NmNApMam9e5COf6K9RDv8e2";
+const appB = initializeApp(firebaseConfigB, 'klasora-school-system');
+const authB = getAuth(appB), dbB = getFirestore(appB);
+const authB2 = getAuth(initializeApp(firebaseConfigB, 'klasora-school-system-secondary'));
+let bReady = false;
+async function connectB(email, password) {
+  try {
+    const c = await signInWithEmailAndPassword(authB, email, password);
+    if (c.user.uid !== B_SUPER_UID) { await signOut(authB); throw new Error('not the School System Super Admin'); }
+    bReady = true;
+  } catch (e) { bReady = false; console.warn('School System link off:', e); }
+  return bReady;
+}
+async function deleteBAuth(email, pw) {
+  try { const c = await signInWithEmailAndPassword(authB2, email, pw); await deleteUser(c.user); } catch (e) {}
+  try { await signOut(authB2); } catch (e) {}
+}
+async function registerInB(x) {
+  if (!bReady) throw new Error('not connected. Sign out, then sign in again with the same email and password as your School System (Firebase B) Super Admin account.');
+  const ex = await getDoc(doc(dbB, 'schools', x.code));
+  if (ex.exists() && ex.data().status !== 'Cancelled') throw new Error('that school code already exists in the School System.');
+  let uid;
+  try { const c = await createUserWithEmailAndPassword(authB2, x.email, x.tempPassword); uid = c.user.uid; await signOut(authB2); }
+  catch (er) { throw new Error(er.code === 'auth/email-already-in-use' ? 'that email already has a School System login.' : (er.message || String(er))); }
+  const now = new Date().toISOString();
+  try {
+    await setDoc(doc(dbB, 'schools', x.code), { code: x.code, name: x.name, poBox: x.poBox, status: 'Active', adminUid: uid, adminName: x.adminName, adminEmail: x.email, createdAt: now });
+    await setDoc(doc(dbB, 'users', uid), { role: 'admin', schoolId: x.code, name: x.adminName, email: x.email, classes: [], children: [], mustChangePassword: true, createdAt: now });
+  } catch (er) { await deleteBAuth(x.email, x.tempPassword); throw new Error(er.message || String(er)); }
+  return { code: x.code, uid, email: x.email, tempPassword: x.tempPassword };
+}
+async function rollbackB(b) {
+  if (!b) return;
+  try { await updateDoc(doc(dbB, 'schools', b.code), { status: 'Cancelled' }); } catch (e) {}
+  await deleteBAuth(b.email, b.tempPassword);
+}
+// Keeps the School System's school status (Active / Suspended / Cancelled) the same as this portal.
+async function mirrorStatus(code, status) {
+  if (!code) return;
+  if (!bReady) { alert('The school was updated here, but the School System link is OFF, so its status was not changed there. Sign out, sign in again, then repeat.'); return; }
+  try { await updateDoc(doc(dbB, 'schools', String(code).toUpperCase()), { status }); }
+  catch (e) { if (e.code !== 'not-found') alert('Updated here, but could not update the School System: ' + (e.message || e)); }
+}
+async function syncStatusesToB(list, isLiveFn) {
+  if (!bReady) return;
+  for (const s of list) {
+    const code = String(s.code || '').toUpperCase(); if (!code) continue;
+    try {
+      const d = await getDoc(doc(dbB, 'schools', code)); if (!d.exists()) continue;
+      const cur = d.data().status, want = isLiveFn(s) ? 'Active' : 'Suspended';
+      if (cur !== want && cur !== 'Cancelled') await updateDoc(doc(dbB, 'schools', code), { status: want });
+    } catch (e) {}
+  }
+}
+
 (()=>{'use strict';
 const PROFILE='klasora_superadmin_profile';
 let schoolsCache=[];
@@ -60,8 +126,8 @@ $('rpNew').textContent=c('reg');$('rpRev').textContent=money(list.filter(e=>e.k=
 const tot=a.length||1;$('rpPlans').innerHTML=TIERS.map(p=>{const n=a.filter(s=>(s.plan||'Starter')===p).length;return `<div class="bar-row"><span>${p}</span><div class="bar"><i style="width:${Math.round(n/tot*100)}%"></i></div><b>${n}</b></div>`}).join('');
 const col={pay:'t-green',reg:'t-teal',sub:'t-purple',pause:'t-amber',exp:'t-red'};$('reportFeed').innerHTML=list.length?list.slice(0,60).map(e=>`<div class="feed-row"><i class="feed-dot ${col[e.k]}"></i><div><b>${safe(e.title)}</b><small>${safe(e.sub)}</small></div><span>${new Date(e.t).toLocaleDateString('en-KE',{day:'2-digit',month:'short'})}</span></div>`).join(''):'<div class="empty">Nothing happened in this period.</div>'}
 function showCreds(title,email,pw){openSheet('ONE-TIME PASSWORD',title,`<p class="sheet-note">Share this securely. It is not stored anywhere and cannot be shown again. The administrator should change it at first sign-in.</p><div class="kv pw"><small>Email</small><b>${safe(email)}</b></div><div class="kv pw" style="margin-top:8px"><small>Temporary password</small><b>${safe(pw)}</b><button type="button" class="copy-btn" data-copy="${safe(pw)}">Copy</button></div>`,[{label:'I have copied it',cls:'primary',fn:closeSheet}])}
-function resetPw(id){const s=getSchool(id);if(!s)return;openSheet('ADMIN ACCESS','Send password reset email?',`<p class="sheet-note">A reset link is emailed to <b>${safe(s.adminEmail)}</b> so the administrator can choose a new password. No password is shown or stored.</p><div class="error" id="sheetMsg"></div>`,[{label:'Cancel',cls:'soft',fn:closeSheet},{label:'Send email',cls:'primary',fn:async()=>{try{await sendPasswordResetEmail(auth,s.adminEmail);closeSheet();alert('Reset email sent to '+s.adminEmail)}catch(err){sheetMsg('Could not send: '+(err.message||err))}}}])}
-async function removeSchool(id){const s=getSchool(id);try{const st=await getDocs(collection(db,'schools',id,'students'));for(const d of st.docs)await deleteDoc(d.ref)}catch(e){}if(s&&s.code)await deleteDoc(doc(db,'schoolCodes',String(s.code).toUpperCase())).catch(()=>{});await deleteDoc(doc(db,'schools',id));if(s&&s.adminEmail)setTimeout(()=>alert('School deleted. Also delete the login '+s.adminEmail+' in Firebase Console > Authentication > Users, or that email cannot be reused.'),300)}
+function resetPw(id){const s=getSchool(id);if(!s)return;openSheet('ADMIN ACCESS','Send password reset email?',`<p class="sheet-note">A reset link is emailed to <b>${safe(s.adminEmail)}</b> so the administrator can choose a new password. No password is shown or stored.</p><div class="error" id="sheetMsg"></div>`,[{label:'Cancel',cls:'soft',fn:closeSheet},{label:'Send email',cls:'primary',fn:async()=>{try{await sendPasswordResetEmail(auth,s.adminEmail);try{await sendPasswordResetEmail(authB,s.adminEmail)}catch(e){}closeSheet();alert('Reset email sent to '+s.adminEmail)}catch(err){sheetMsg('Could not send: '+(err.message||err))}}}])}
+async function removeSchool(id){const s=getSchool(id);try{const st=await getDocs(collection(db,'schools',id,'students'));for(const d of st.docs)await deleteDoc(d.ref)}catch(e){}if(s&&s.code)await deleteDoc(doc(db,'schoolCodes',String(s.code).toUpperCase())).catch(()=>{});if(s&&s.code)await mirrorStatus(s.code,'Cancelled');await deleteDoc(doc(db,'schools',id));if(s&&s.adminEmail)setTimeout(()=>alert('School deleted. Also delete the login '+s.adminEmail+' in Firebase Console > Authentication > Users (both projects: klasora-2fc4a and klasora-school), or that email cannot be reused.'),300)}
 async function scrubLegacy(){for(const s of read().filter(x=>x.tempPassword!==undefined))await updateDoc(doc(db,'schools',s.id),{tempPassword:deleteField()})}
 let paymentsCache=[];
 async function loadPayments(){try{const from=new Date();from.setMonth(from.getMonth()-12);const s=await getDocs(query(collection(db,'payments'),where('paidAt','>=',from.toISOString())));paymentsCache=s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){paymentsCache=[]}renderChart()}
@@ -80,6 +146,7 @@ async function saveSchool(updated){
   await updateDoc(doc(db,'schools',id),data);
   const live=(updated.status||'Active')==='Active'&&updated.subscriptionStatus!=='Paused',cd=String(updated.code||'').toUpperCase();
   try{if(cd)await setDoc(doc(db,'schoolCodes',cd),{code:cd,schoolId:id,schoolName:updated.name,adminUid:updated.adminUid||null,active:live,isActive:live,activated:live,status:live?'Active':'Paused',updatedAt:new Date().toISOString()},{merge:true})}catch(e){}
+  await mirrorStatus(cd,isLive(updated)?'Active':'Suspended');
   const i=schoolsCache.findIndex(s=>s.id===id);
   if(i>=0) schoolsCache[i]=updated;
 }
@@ -132,8 +199,9 @@ $('loginForm').addEventListener('submit',async e=>{
     $('app').classList.remove('hidden');
     authEmail=credential.user.email||'';
     $('loginTime').textContent=new Date().toLocaleString();
+    await connectB($('username').value.trim(),$('password').value);
     renderProfile();
-    await syncProfileDown();renderProfile();await loadSchools();loadPayments();beat().then(loadOnline);setInterval(()=>{beat().then(loadOnline)},45000);
+    await syncProfileDown();renderProfile();await loadSchools();if(!bReady)alert('School System link is OFF. Your email and password must match your School System (Firebase B) Super Admin account. Until then, new schools cannot be registered here. Sign out and sign in again after fixing it.');else syncStatusesToB(schoolsCache,isLive);loadPayments();beat().then(loadOnline);setInterval(()=>{beat().then(loadOnline)},45000);
     $('loginError').textContent='';
   }catch(err){
     $('loginError').textContent=err.code==='auth/invalid-credential'||err.code==='auth/wrong-password'||err.code==='auth/user-not-found'
@@ -145,7 +213,7 @@ $('logout').onclick=async()=>{await signOut(auth);location.reload()};
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>showPage(b.dataset.page,b));$('scrubBtn').onclick=async()=>{const b=$('scrubBtn');b.disabled=true;try{await scrubLegacy();await loadSchools()}catch(e){alert('Could not remove the stored passwords: '+(e.message||e))}b.disabled=false};$('bkJson').onclick=()=>doBackup('json');$('bkCsv').onclick=()=>doBackup('csv');$('sideClose').onclick=()=>{window.closeSide();showPage('overview')};document.addEventListener('click',e=>{const c=e.target.closest('[data-rp]');if(c){rpDays=+c.dataset.rp;renderReports()}});const EYE='<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',EYEOFF='<path d="M3 3l18 18M10.6 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 004.2 4.2"/>';$('togglePw').onclick=()=>{const p=$('password'),show=p.type==='password';p.type=show?'text':'password';$('togglePw').querySelector('svg').innerHTML=show?EYEOFF:EYE;$('togglePw').setAttribute('aria-label',show?'Hide password':'Show password')};
 if($('sideSearch'))$('sideSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll('#sidebar .nav[data-page]').forEach(b=>b.style.display=!q||b.textContent.toLowerCase().includes(q)?'flex':'none')});
 document.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>showPage(b.dataset.goto));
-$('schoolForm').addEventListener('submit',async e=>{e.preventDefault();const code=$('schoolCode').value.trim().replace(/\s+/g,'').toUpperCase(),email=$('adminEmail').value.trim().toLowerCase(),msg=$('formMessage');if(!/^[A-Z0-9-]{1,24}$/.test(code)){msg.textContent='School code must contain letters, numbers or hyphens.';return}if(read().some(s=>String(s.code||'').toUpperCase()===code)){msg.textContent='That school code is already registered.';return}if(read().some(s=>String(s.adminEmail||'').toLowerCase()===email)){msg.textContent='That administrator email is already registered.';return}const btn=$('schoolForm').querySelector('button:not([type])');if(btn)btn.disabled=true;msg.textContent='Creating the school and administrator account…';let cred=null;try{if((await getDoc(doc(db,'schoolCodes',code))).exists())throw new Error('That school code is already registered.');const tempPassword=genPw();try{cred=await createUserWithEmailAndPassword(secondaryAuth,email,tempPassword)}catch(er){throw new Error(er.code==='auth/email-already-in-use'?'A login with that email already exists. If it is left over from a deleted school, delete it in Firebase Console > Authentication, then try again.':(er.message||'Could not create the login.'))}const ref=doc(collection(db,'schools')),now=new Date().toISOString(),school={code,name:$('schoolName').value.trim(),adminName:$('adminName').value.trim(),adminEmail:email,poBox:$('schoolBox').value.trim(),adminUid:cred.user.uid,status:'Active',subscriptionStatus:'Active',plan:'Starter',monthlyFee:0,renewalDate:'',subscriptionStart:'',createdAt:now,activated:true,mustChangePassword:true,passwordIssuedAt:now};try{const b=writeBatch(db);b.set(ref,school);b.set(doc(db,'schoolCodes',code),{code,schoolId:ref.id,schoolName:school.name,adminUid:cred.user.uid,active:true,isActive:true,activated:true,status:'Active',createdAt:now});await b.commit()}catch(er){await deleteUser(cred.user).catch(()=>{});throw new Error('Could not save the school: '+(er.message||er))}schoolsCache.push({id:ref.id,...school});$('schoolForm').reset();msg.textContent='School created.';renderAll();showCreds('Administrator account created',email,tempPassword)}catch(err){msg.textContent=err.message||String(err)}finally{try{await signOut(secondaryAuth)}catch(x){}if(btn)btn.disabled=false}});
+$('schoolForm').addEventListener('submit',async e=>{e.preventDefault();const code=$('schoolCode').value.trim().replace(/\s+/g,'').toUpperCase(),email=$('adminEmail').value.trim().toLowerCase(),msg=$('formMessage');if(!/^[A-Z0-9-]{1,24}$/.test(code)){msg.textContent='School code must contain letters, numbers or hyphens.';return}if(read().some(s=>String(s.code||'').toUpperCase()===code)){msg.textContent='That school code is already registered.';return}if(read().some(s=>String(s.adminEmail||'').toLowerCase()===email)){msg.textContent='That administrator email is already registered.';return}const btn=$('schoolForm').querySelector('button:not([type])');if(btn)btn.disabled=true;msg.textContent='Creating the school and administrator account…';let cred=null;try{if((await getDoc(doc(db,'schoolCodes',code))).exists())throw new Error('That school code is already registered.');const tempPassword=genPw();let bRes=null;try{bRes=await registerInB({code,name:$('schoolName').value.trim(),poBox:$('schoolBox').value.trim(),adminName:$('adminName').value.trim(),email,tempPassword})}catch(er){throw new Error('School System: '+(er.message||er))}try{cred=await createUserWithEmailAndPassword(secondaryAuth,email,tempPassword)}catch(er){await rollbackB(bRes);throw new Error(er.code==='auth/email-already-in-use'?'A login with that email already exists. If it is left over from a deleted school, delete it in Firebase Console > Authentication, then try again.':(er.message||'Could not create the login.'))}const ref=doc(collection(db,'schools')),now=new Date().toISOString(),school={code,name:$('schoolName').value.trim(),adminName:$('adminName').value.trim(),adminEmail:email,poBox:$('schoolBox').value.trim(),adminUid:cred.user.uid,status:'Active',subscriptionStatus:'Active',plan:'Starter',monthlyFee:0,renewalDate:'',subscriptionStart:'',createdAt:now,activated:true,mustChangePassword:true,passwordIssuedAt:now};try{const b=writeBatch(db);b.set(ref,school);b.set(doc(db,'schoolCodes',code),{code,schoolId:ref.id,schoolName:school.name,adminUid:cred.user.uid,active:true,isActive:true,activated:true,status:'Active',createdAt:now});await b.commit()}catch(er){await deleteUser(cred.user).catch(()=>{});await rollbackB(bRes);throw new Error('Could not save the school: '+(er.message||er))}schoolsCache.push({id:ref.id,...school});$('schoolForm').reset();msg.textContent='School created.';renderAll();showCreds('Administrator account created',email,tempPassword)}catch(err){msg.textContent=err.message||String(err)}finally{try{await signOut(secondaryAuth)}catch(x){}if(btn)btn.disabled=false}});
 
 $('schoolSearch').addEventListener('input',()=>renderSchoolRows(read().slice().reverse(),'schoolDirectory'));
 document.addEventListener('click',e=>{const cp=e.target.closest('[data-copy]');if(cp){if(navigator.clipboard)navigator.clipboard.writeText(cp.dataset.copy).then(()=>{cp.textContent='Copied';setTimeout(()=>cp.textContent='Copy',1500)}).catch(()=>{});return}if(e.target.closest('[data-register]')){closeSheet();showPage('addschool');return}const rs=e.target.closest('[data-reset]');if(rs){resetPw(rs.dataset.reset);return}const po=e.target.closest('[data-panel-open]');if(po){panelList(po.dataset.panelOpen);return}const st=e.target.closest('[data-stat]');if(st){statList(st.dataset.stat);return}const m=e.target.closest('[data-sub]'),t=e.target.closest('[data-toggle-sub]');if(m){closeSheet();manageSub(m.dataset.sub);return}if(t){closeSheet();toggleSub(t.dataset.toggleSub);return}const d=e.target.closest('[data-details]');if(d){closeSheet();details(d.dataset.details)}});
