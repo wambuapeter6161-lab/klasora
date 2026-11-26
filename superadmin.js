@@ -110,6 +110,63 @@ const emptyText=k=>k==='expiring'?'No expiry dates yet. Set a subscription under
 function tagText(s,k){if(k==='expiring'){const d=daysLeft(s.renewalDate);return d<0?'Expired':d===0?'Today':d+'d left'}if(k==='new'){const t=s.createdAt?(Date.now()-new Date(s.createdAt))/864e5:99;return t<=7?'NEW':(s.createdAt?new Date(s.createdAt).toLocaleDateString('en-KE',{day:'2-digit',month:'short'}):'—')}return s.studentCount?s.studentCount+' students':Number(s.monthlyFee||0)?money(s.monthlyFee):(s.plan||'Starter')}
 function panelList(kind){const T=PANELS[kind];if(!T)return;const list=T[2](read());const body='<p class="sheet-note">'+T[1]+' Tap a school for its full record.</p>'+(list.length?'<div class="school-list">'+list.map(s=>`<div class="school-row" data-details="${safe(s.id)}"><div class="school-info"><b>${safe(s.name)}</b><small>${safe(s.code)} · ${safe(s.plan||'Starter')} · ${money(s.monthlyFee||0)}</small><small>${kind==='expiring'?'Expires '+fmtD(s.renewalDate):'Registered '+(shortD(s.createdAt)||'—')} · ${statusTag(s)}</small></div><span class="compact-tag">${safe(tagText(s,kind))}</span></div>`).join('')+'</div>':'<div class="empty">'+emptyText(kind)+'</div>');openSheet('OVERVIEW',T[0],body,[{label:'Close',cls:'primary',fn:closeSheet}])}
 function dl(name,type,txt){const b=new Blob([txt],{type}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},800)}
+function parseCsv(t){
+  const rows=[];let row=[],f='',q=false;t=String(t||'').replace(/^\ufeff/,'');
+  for(let i=0;i<t.length;i++){const c=t[i];
+    if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c==='"')q=true;
+    else if(c===','){row.push(f);f=''}
+    else if(c==='\n'||c==='\r'){if(c==='\r'&&t[i+1]==='\n')i++;row.push(f);f='';if(row.some(x=>x!==''))rows.push(row);row=[]}
+    else f+=c}
+  row.push(f);if(row.some(x=>x!==''))rows.push(row);
+  if(rows.length<2)return[];
+  const h=rows[0].map(x=>x.trim());
+  return rows.slice(1).map(r=>{const o={};h.forEach((k,i)=>{let v=r[i]??'';if(/^'[=+\-@]/.test(v))v=v.slice(1);o[k]=v});return o});
+}
+const RESTORE_FIELDS=['code','name','adminName','adminEmail','poBox','adminUid','status','subscriptionStatus','plan','monthlyFee','subscriptionStart','renewalDate','createdAt','activated','mustChangePassword','studentCount','staffCount','userCount','statsUpdatedAt'];
+function cleanRestoreRecord(r){
+  if(!r||typeof r!=='object')return null;
+  const code=String(r.code||'').trim().replace(/\s+/g,'').toUpperCase(),name=String(r.name||'').trim();
+  if(!/^[A-Z0-9-]{1,24}$/.test(code)||!name||name.length>120)return null;
+  const o={};
+  RESTORE_FIELDS.forEach(k=>{if(r[k]===undefined||r[k]===null||r[k]==='')return;
+    if(['monthlyFee','studentCount','staffCount','userCount'].includes(k)){const n=Number(r[k]);if(Number.isFinite(n))o[k]=n}
+    else if(['activated','mustChangePassword'].includes(k))o[k]=(r[k]===true||r[k]==='true');
+    else o[k]=String(r[k]).slice(0,200)});
+  o.code=code;o.name=name;
+  if(!o.status)o.status='Active';if(!o.subscriptionStatus)o.subscriptionStatus='Active';if(!o.plan)o.plan='Starter';if(o.monthlyFee===undefined)o.monthlyFee=0;
+  return {data:o,id:/^[A-Za-z0-9]{15,30}$/.test(String(r.id||''))?String(r.id):''};
+}
+async function restoreFromFile(file){
+  const msg=$('backupMsg');msg.textContent='';
+  if(file.size>5*1024*1024){msg.textContent='That file is too large to be a Klasora backup.';return}
+  let list;
+  try{
+    const text=await file.text();
+    if(/\.csv$/i.test(file.name)||(!/^\s*[\[{]/.test(text)))list=parseCsv(text);
+    else{const j=JSON.parse(text);list=Array.isArray(j)?j:(Array.isArray(j.schools)?j.schools:null);if(!list)throw new Error('no schools')}
+  }catch(e){msg.textContent='That file is not a Klasora backup. Choose the JSON or CSV file made on the Backup page.';return}
+  if(list.length>2000){msg.textContent='That file has too many schools.';return}
+  const recs=list.map(cleanRestoreRecord).filter(Boolean),bad=list.length-recs.length;
+  if(!recs.length){msg.textContent='No valid schools were found in that file.';return}
+  const have=new Map(read().map(x=>[String(x.code||'').toUpperCase(),x])),fresh=recs.filter(r=>!have.has(r.data.code)),dup=recs.length-fresh.length;
+  openSheet('RESTORE DATA','Restore from backup?',`<p class="sheet-note"><b>${safe(file.name)}</b><br>${recs.length} school${recs.length===1?'':'s'} found: <b>${fresh.length} new</b>, ${dup} already registered${bad?`, ${bad} skipped (incomplete)`:''}.</p><label class="chk"><input type="checkbox" id="rsOver"> Also overwrite the ${dup} school${dup===1?'':'s'} already registered</label><p class="sheet-note">This restores the school list and subscription records only. Students, results and fees inside the School System, and administrator logins, are not part of a backup file.</p><div class="error" id="sheetMsg"></div>`,
+  [{label:'Cancel',cls:'soft',fn:closeSheet},{label:'Restore',cls:'primary',fn:async()=>{
+    const over=$('rsOver').checked;let added=0,updated=0;
+    try{
+      let b=writeBatch(db),k=0;const flush=async()=>{if(k){await b.commit();b=writeBatch(db);k=0}};
+      for(const r of recs){
+        const old=have.get(r.data.code);if(old&&!over)continue;
+        const id=old?old.id:(r.id||doc(collection(db,'saSchools')).id),d=r.data,live=(d.status||'Active')==='Active'&&d.subscriptionStatus!=='Paused',now=new Date().toISOString();
+        b.set(doc(db,'saSchools',id),d,{merge:!!old});
+        b.set(doc(db,'saSchoolCodes',d.code),{code:d.code,schoolId:id,schoolName:d.name,adminUid:d.adminUid||null,active:live,isActive:live,activated:live,status:live?'Active':'Paused',updatedAt:now},{merge:true});
+        k+=2;old?updated++:added++;if(k>=400)await flush();
+      }
+      await flush();await loadSchools();closeSheet();
+      msg.textContent=`Restore finished: ${added} added, ${updated} updated.`;renderBackup();
+    }catch(e){sheetMsg('Could not restore: '+(e.message||e))}
+  }}]);
+}
 function renderBackup(){$('backupCount').textContent=read().length;const t=ls.get('klasora_last_backup');$('backupLast').textContent=t?new Date(t).toLocaleString('en-KE'):'Never'}
 async function doBackup(kind){const m=$('backupMsg');m.textContent='Fetching the latest records…';try{await loadSchools()}catch(e){m.textContent='Could not reach Firestore: '+e.message;return}const a=read().map(({tempPassword,...r})=>r),stamp=new Date().toISOString().slice(0,10);if(kind==='json')dl('klasora-backup-'+stamp+'.json','application/json',JSON.stringify({app:'Klasora Super Admin',exportedAt:new Date().toISOString(),count:a.length,schools:a},null,2));else{const cols=['code','name','adminName','adminEmail','poBox','adminUid','status','subscriptionStatus','plan','monthlyFee','subscriptionStart','renewalDate','createdAt'],q=v=>{let s=String(v??'');if(/^[=+\-@]/.test(s))s="'"+s;return'"'+s.replace(/"/g,'""')+'"'};dl('klasora-schools-'+stamp+'.csv','text/csv;charset=utf-8','\ufeff'+[cols.join(',')].concat(a.map(s=>cols.map(c=>q(s[c])).join(','))).join('\r\n'))}ls.set('klasora_last_backup',new Date().toISOString());renderBackup();m.textContent='Backup downloaded ('+a.length+' schools).'}
 let rpDays=30;
@@ -123,7 +180,27 @@ function showConnectB(){
   openSheet('SCHOOL SYSTEM','Connect to the School System',`<p class="sheet-note">Sign in with your <b>School System (Firebase B)</b> Super Admin email and password. They are used only now and are never stored. Without this, new schools cannot be registered here.</p><label>Email</label><input id="bEmail" type="email" autocomplete="off" autocapitalize="none"><label>Password</label><input id="bPass" type="password" autocomplete="off"><div class="error" id="sheetMsg"></div>`,[{label:'Later',cls:'soft',fn:closeSheet},{label:'Connect',cls:'primary',fn:async()=>{const ok=await connectB($('bEmail').value.trim(),$('bPass').value);if(ok){closeSheet();alert('Connected to the School System.');syncStatusesToB(schoolsCache,isLive)}else sheetMsg('Could not connect. Check the email and password of your School System account.')}}]);
 }
 function resetPw(id){const s=getSchool(id);if(!s)return;openSheet('ADMIN ACCESS','Send password reset email?',`<p class="sheet-note">A reset link is emailed to <b>${safe(s.adminEmail)}</b> so the administrator can choose a new password. No password is shown or stored.</p><div class="error" id="sheetMsg"></div>`,[{label:'Cancel',cls:'soft',fn:closeSheet},{label:'Send email',cls:'primary',fn:async()=>{try{await sendPasswordResetEmail(auth,s.adminEmail);closeSheet();alert('Reset email sent to '+s.adminEmail)}catch(err){sheetMsg('Could not send: '+(err.message||err))}}}])}
-async function removeSchool(id){const s=getSchool(id);try{const st=await getDocs(collection(db,'saSchools',id,'students'));for(const d of st.docs)await deleteDoc(d.ref)}catch(e){}if(s&&s.code)await deleteDoc(doc(db,'saSchoolCodes',String(s.code).toUpperCase())).catch(()=>{});if(s&&s.code)await mirrorStatus(s.code,'Cancelled');await deleteDoc(doc(db,'saSchools',id));if(s&&s.adminEmail)setTimeout(()=>alert('School deleted. Also delete the login '+s.adminEmail+' in Firebase Console > Authentication > Users (project klasora-school), or that email cannot be reused.'),300)}
+const SCHOOL_SUBS=['classes','subjects','timetables','students','promotions','attendance','results','meta','messages','paynotes','fees','payments'];
+async function wipeDocs(docs){let n=0,b=writeBatch(dbB),k=0;for(const d of docs){b.delete(d.ref);k++;n++;if(k===400){await b.commit();b=writeBatch(dbB);k=0}}if(k)await b.commit();return n}
+// Permanently deletes a school's records from the School System (Firebase B) and its entry in this portal.
+async function wipeSchool(s,say){
+  const code=String(s.code||'').trim().toUpperCase();
+  if(!code)throw new Error('This school has no code.');
+  const out={records:0,profiles:0,emails:[]};
+  for(const sub of SCHOOL_SUBS){say('Deleting '+sub+'…');out.records+=await wipeDocs((await getDocs(collection(dbB,'schools',code,sub))).docs)}
+  say('Deleting user profiles…');
+  const us=await getDocs(query(collection(dbB,'users'),where('schoolId','==',code)));
+  const em=new Set();us.docs.forEach(d=>{const e=String(d.data().email||'').trim().toLowerCase();if(e)em.add(e)});
+  if(s.adminEmail)em.add(String(s.adminEmail).trim().toLowerCase());
+  out.profiles=await wipeDocs(us.docs);out.emails=[...em];
+  say('Deleting the school…');
+  await deleteDoc(doc(dbB,'schools',code));
+  say('Cleaning the school registry…');
+  try{const st=await getDocs(collection(db,'saSchools',s.id,'students'));for(const d of st.docs)await deleteDoc(d.ref)}catch(e){}
+  await deleteDoc(doc(db,'saSchoolCodes',code)).catch(()=>{});
+  await deleteDoc(doc(db,'saSchools',s.id));
+  return out;
+}
 async function scrubLegacy(){for(const s of read().filter(x=>x.tempPassword!==undefined))await updateDoc(doc(db,'saSchools',s.id),{tempPassword:deleteField()})}
 let paymentsCache=[];
 async function loadPayments(){try{const from=new Date();from.setMonth(from.getMonth()-12);const s=await getDocs(query(collection(db,'saPayments'),where('paidAt','>=',from.toISOString())));paymentsCache=s.docs.map(d=>({id:d.id,...d.data()}))}catch(e){paymentsCache=[]}renderChart()}
@@ -168,7 +245,24 @@ $('subRenew').onchange=()=>{manual=true;sum();chips()};
 $('expChips').onclick=e=>{const b=e.target.closest('[data-add]');if(!b)return;months=+b.dataset.add;manual=false;$('subRenew').value=addMonths($('subStart').value||today(),months);sum();chips()};
 sum();chips()}
 function toggleSub(id){const s=getSchool(id);if(!s)return;const pause=s.subscriptionStatus!=='Paused';openSheet(pause?'PAUSE ACCESS':'RESUME ACCESS',pause?'Pause subscription?':'Resume subscription?',`<p class="sheet-note">${pause?'Pause the subscription for':'Resume the subscription for'} <b>${safe(s.name)}</b>? This updates the school's Firestore subscription record.</p>`,[{label:'Cancel',cls:'soft',fn:closeSheet},{label:pause?'Pause subscription':'Resume subscription',cls:pause?'danger':'primary',fn:async()=>{const u=getSchool(id);u.subscriptionStatus=pause?'Paused':'Active';u.subscriptionUpdatedAt=new Date().toISOString();await saveSchool(u);closeSheet();renderAll();if(!$('detailModal').classList.contains('hidden'))details(id)}}])}
-function deleteSchool(){const s=getSchool(selectedId);if(!s)return;const id=selectedId;openSheet('DANGER ZONE','Delete school?',`<p class="sheet-note">This will permanently delete <b>${safe(s.name)}</b> (${safe(s.code)}) from the Firestore school registry. It cannot be undone.</p><label>Type the school code <b>${safe(s.code)}</b> to confirm</label><input id="delCode" autocapitalize="characters" autocomplete="off"><div class="error" id="sheetMsg"></div>`,[{label:'Cancel',cls:'soft',fn:closeSheet},{label:'Delete school',cls:'danger',fn:()=>{if($('delCode').value.trim().toUpperCase()!==String(s.code).toUpperCase()){sheetMsg('School code did not match. Nothing was deleted.');return}removeSchool(id).then(()=>{schoolsCache=schoolsCache.filter(x=>x.id!==id);renderAll()}).catch(err=>alert('Could not delete school: '+err.message));closeSheet();$('detailModal').classList.add('hidden');selectedId=null;renderAll()}}])}
+function deleteSchool(){
+  const s=getSchool(selectedId);if(!s)return;const id=selectedId;
+  openSheet('DANGER ZONE','Delete school and all its data?',`<p class="sheet-note">This permanently deletes <b>${safe(s.name)}</b> (${safe(s.code)}) from Firebase: its learners, staff and parent profiles, attendance, results, fees, payments, messages and its subscription record. <b>It cannot be undone</b>, and a backup file cannot bring this data back.</p><label>Type the school code <b>${safe(s.code)}</b> to confirm</label><input id="delCode" autocapitalize="characters" autocomplete="off"><div class="error" id="sheetMsg"></div>`,
+  [{label:'Cancel',cls:'soft',fn:closeSheet},{label:'Delete everything',cls:'danger',fn:async()=>{
+    if($('delCode').value.trim().toUpperCase()!==String(s.code).toUpperCase()){sheetMsg('School code did not match. Nothing was deleted.');return}
+    openSheet('DELETING','Deleting '+s.name,'<p class="sheet-note" id="delProg">Starting…</p><p class="sheet-note">Please keep this screen open until it finishes.</p>',[]);
+    const say=t=>{const e=$('delProg');if(e)e.textContent=t};
+    try{
+      const r=await wipeSchool(s,say);
+      schoolsCache=schoolsCache.filter(x=>x.id!==id);$('detailModal').classList.add('hidden');selectedId=null;renderAll();
+      const mails=r.emails.length?`<p class="sheet-note"><b>One more step.</b> Firebase does not let this portal delete sign-in logins. In the Firebase Console open <b>klasora-school → Authentication → Users</b> and delete ${r.emails.length===1?'this login':'these logins'}, so the email can be used again:<br>${r.emails.map(safe).join('<br>')}</p>`:'';
+      openSheet('DONE','School deleted',`<p class="sheet-note">${r.records} records and ${r.profiles} user profile${r.profiles===1?'':'s'} were permanently deleted from Firebase.</p>${mails}`,[{label:'Close',cls:'primary',fn:closeSheet}]);
+    }catch(err){
+      openSheet('NOT FINISHED','Could not delete everything',`<p class="sheet-note">${safe(err.code==='permission-denied'?'Firebase refused the deletion. Publish the updated Firestore rules for the Super Admin, then try again.':(err.message||err))}</p><p class="sheet-note">The school is still listed. You can try again.</p>`,[{label:'Close',cls:'primary',fn:closeSheet}]);
+      try{await loadSchools()}catch(e){}
+    }
+  }}]);
+}
 function statList(kind){const a=read().slice().reverse();const T={all:['Registered schools','Every school you have registered',()=>true],active:['Active schools','Schools currently active',isLive],paused:['Paused subscriptions','Schools whose access is paused',s=>s.subscriptionStatus==='Paused'],value:['Subscription value','Active subscriptions and their monthly fees',isLive]}[kind];if(!T)return;const list=a.filter(T[2]);let body='<p class="sheet-note">'+T[1]+'. Tap a school to see its details.</p>';
 if(kind==='value')body+=`<div class="sheet-total"><small>TOTAL MONTHLY VALUE</small><b>${money(list.reduce((n,s)=>n+Number(s.monthlyFee||0),0))}</b></div>`;
 body+=list.length?'<div class="school-list">'+list.map(s=>`<div class="school-row" data-details="${safe(s.id)}"><div class="school-info"><b>${safe(s.name)}</b><small>${safe(s.code)} · ${safe(s.adminName)}</small><small>${kind==='value'?`${safe(s.plan||'Starter')} · ${money(s.monthlyFee||0)} / month · `:''}${statusTag(s)}</small></div><button type="button" class="btn soft" data-details="${safe(s.id)}">Details</button></div>`).join('')+'</div>':`<div class="empty">No schools here yet.${kind==='all'?'<br><br><button type="button" class="btn gold-btn" data-register="1">＋ Register a School</button>':''}</div>`;
@@ -182,6 +276,19 @@ ${[['SCHOOL NAME',s.name],['SCHOOL CODE',s.code],['ADMINISTRATOR NAME',s.adminNa
 
 
 
+const SESSION_FLAG='klasora_sa_session';
+let appStarted=false;
+// Opens the dashboard for the signed-in Super Admin (used after sign-in and when a saved sign-in is restored).
+async function enterApp(user){
+  $('loginScreen').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  authEmail=user.email||'';
+  $('loginTime').textContent=new Date().toLocaleString();
+  await connectB();
+  renderProfile();
+  await syncProfileDown();renderProfile();await loadSchools();if(!bReady)showConnectB();else syncStatusesToB(schoolsCache,isLive);loadPayments();
+  if(!appStarted){appStarted=true;beat().then(loadOnline);setInterval(()=>{beat().then(loadOnline)},45000);}
+}
 $('loginForm').addEventListener('submit',async e=>{
   e.preventDefault();
   $('loginError').textContent='Signing in…';
@@ -191,13 +298,8 @@ $('loginForm').addEventListener('submit',async e=>{
       await signOut(auth);
       throw new Error('Wrong password.');
     }
-    $('loginScreen').classList.add('hidden');
-    $('app').classList.remove('hidden');
-    authEmail=credential.user.email||'';
-    $('loginTime').textContent=new Date().toLocaleString();
-    await connectB($('username').value.trim(),$('password').value);
-    renderProfile();
-    await syncProfileDown();renderProfile();await loadSchools();if(!bReady)showConnectB();else syncStatusesToB(schoolsCache,isLive);loadPayments();beat().then(loadOnline);setInterval(()=>{beat().then(loadOnline)},45000);
+    ls.set(SESSION_FLAG,'1');
+    await enterApp(credential.user);
     $('loginError').textContent='';
   }catch(err){
     $('loginError').textContent=err.code==='auth/invalid-credential'||err.code==='auth/wrong-password'||err.code==='auth/user-not-found'||err.code==='auth/invalid-email'
@@ -205,8 +307,18 @@ $('loginForm').addEventListener('submit',async e=>{
       :err.message||'Sign-in failed. Please try again.';
   }
 });
-$('logout').onclick=async()=>{await signOut(auth);location.reload()};
-document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>showPage(b.dataset.page,b));$('scrubBtn').onclick=async()=>{const b=$('scrubBtn');b.disabled=true;try{await scrubLegacy();await loadSchools()}catch(e){alert('Could not remove the stored passwords: '+(e.message||e))}b.disabled=false};$('bkJson').onclick=()=>doBackup('json');$('bkCsv').onclick=()=>doBackup('csv');$('sideClose').onclick=()=>{window.closeSide();showPage('overview')};document.addEventListener('click',e=>{const c=e.target.closest('[data-rp]');if(c){rpDays=+c.dataset.rp;renderReports()}});const EYE='<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',EYEOFF='<path d="M3 3l18 18M10.6 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 004.2 4.2"/>';$('togglePw').onclick=()=>{const p=$('password'),show=p.type==='password';p.type=show?'text':'password';$('togglePw').querySelector('svg').innerHTML=show?EYEOFF:EYE;$('togglePw').setAttribute('aria-label',show?'Hide password':'Show password')};
+$('logout').onclick=async()=>{ls.del(SESSION_FLAG);await signOut(auth);location.reload()};
+// Stay signed in until the Super Admin taps Sign out: restore the saved Firebase session on every start.
+(async()=>{
+  try{
+    if(auth.authStateReady)await auth.authStateReady();
+    const u=auth.currentUser;
+    if(u&&u.uid===SUPER_ADMIN_UID){await enterApp(u)}
+    else if(u){await signOut(auth)}
+  }catch(e){console.warn('Could not restore the saved sign-in:',e)}
+  finally{document.documentElement.classList.remove('sa-restoring')}
+})();
+document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>showPage(b.dataset.page,b));$('scrubBtn').onclick=async()=>{const b=$('scrubBtn');b.disabled=true;try{await scrubLegacy();await loadSchools()}catch(e){alert('Could not remove the stored passwords: '+(e.message||e))}b.disabled=false};$('bkRestore').onclick=()=>$('bkFile').click();$('bkFile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)restoreFromFile(f)};$('bkJson').onclick=()=>doBackup('json');$('bkCsv').onclick=()=>doBackup('csv');$('sideClose').onclick=()=>{window.closeSide();showPage('overview')};document.addEventListener('click',e=>{const c=e.target.closest('[data-rp]');if(c){rpDays=+c.dataset.rp;renderReports()}});const EYE='<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',EYEOFF='<path d="M3 3l18 18M10.6 5.1A10 10 0 0112 5c6.4 0 10 7 10 7a17 17 0 01-3.2 4M6.5 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7c1.7 0 3.2-.4 4.5-1M9.9 9.9a3 3 0 004.2 4.2"/>';$('togglePw').onclick=()=>{const p=$('password'),show=p.type==='password';p.type=show?'text':'password';$('togglePw').querySelector('svg').innerHTML=show?EYEOFF:EYE;$('togglePw').setAttribute('aria-label',show?'Hide password':'Show password')};
 if($('sideSearch'))$('sideSearch').addEventListener('input',e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll('#sidebar .nav[data-page]').forEach(b=>b.style.display=!q||b.textContent.toLowerCase().includes(q)?'flex':'none')});
 document.querySelectorAll('[data-goto]').forEach(b=>b.onclick=()=>showPage(b.dataset.goto));
 $('schoolForm').addEventListener('submit',async e=>{e.preventDefault();if(!bReady){showConnectB();return}const code=$('schoolCode').value.trim().replace(/\s+/g,'').toUpperCase(),email=$('adminEmail').value.trim().toLowerCase(),msg=$('formMessage');if(!/^[A-Z0-9-]{1,24}$/.test(code)){msg.textContent='School code must contain letters, numbers or hyphens.';return}if(read().some(s=>String(s.code||'').toUpperCase()===code)){msg.textContent='That school code is already registered.';return}if(read().some(s=>String(s.adminEmail||'').toLowerCase()===email)){msg.textContent='That administrator email is already registered.';return}const btn=$('schoolForm').querySelector('button:not([type])');if(btn)btn.disabled=true;msg.textContent='Creating the school and administrator account…';let cred=null;try{if((await getDoc(doc(db,'saSchoolCodes',code))).exists())throw new Error('That school code is already registered.');const tempPassword=genPw();let bRes=null;try{bRes=await registerInB({code,name:$('schoolName').value.trim(),poBox:$('schoolBox').value.trim(),adminName:$('adminName').value.trim(),email,tempPassword})}catch(er){throw new Error('School System: '+(er.message||er))}cred={user:{uid:bRes.uid}};const ref=doc(collection(db,'saSchools')),now=new Date().toISOString(),school={code,name:$('schoolName').value.trim(),adminName:$('adminName').value.trim(),adminEmail:email,poBox:$('schoolBox').value.trim(),adminUid:cred.user.uid,status:'Active',subscriptionStatus:'Active',plan:'Starter',monthlyFee:0,renewalDate:'',subscriptionStart:'',createdAt:now,activated:true,mustChangePassword:true,passwordIssuedAt:now};try{const b=writeBatch(db);b.set(ref,school);b.set(doc(db,'saSchoolCodes',code),{code,schoolId:ref.id,schoolName:school.name,adminUid:cred.user.uid,active:true,isActive:true,activated:true,status:'Active',createdAt:now});await b.commit()}catch(er){await rollbackB(bRes);throw new Error('Could not save the school: '+(er.message||er))}schoolsCache.push({id:ref.id,...school});$('schoolForm').reset();msg.textContent='School created.';renderAll();showCreds('Administrator account created',email,tempPassword)}catch(err){msg.textContent=err.message||String(err)}finally{if(btn)btn.disabled=false}});

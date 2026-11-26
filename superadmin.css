@@ -54,3 +54,10 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* v12 */
 .sheet label.chk{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:12px;font-weight:700}.sheet .chk input{width:20px;height:20px;padding:0;margin:0;box-shadow:none}
 .notice.danger{background:#fdecec;border:1px solid #f3c1c1;color:#a12a2a;margin-bottom:14px}.notice .btn{margin:8px 0 0}.rst{margin:0;width:100%;padding:8px;font-size:11px}.form-note{margin:14px 0 4px}
+
+/* hidden while a saved sign-in is being restored */
+.sa-restoring #loginScreen{visibility:hidden}
+/* backup: restore */
+.bk-restore{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.bk-restore h3{margin:0 0 4px;font-size:15px}.bk-restore p{margin:0 0 10px;color:var(--muted);font-size:12px;line-height:1.5}
+.chk{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px}.chk input{width:auto;margin:0}
