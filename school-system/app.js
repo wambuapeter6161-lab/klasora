@@ -1,5 +1,5 @@
 // Klasora branded opening screen
-document.addEventListener('DOMContentLoaded', function(){var splash=document.getElementById('klasoraSplash');if(splash)window.setTimeout(function(){splash.classList.add('is-hidden');window.setTimeout(function(){splash.remove();},350);},950);});
+document.addEventListener('DOMContentLoaded', function(){var splash=document.getElementById('klasoraSplash');if(splash)window.setTimeout(function(){splash.classList.add('is-hidden');window.setTimeout(function(){splash.remove();},250);},400);});
 const modules = {
  students:{title:'Student Management',subtitle:'Manage admissions, learner profiles and student records.',stats:[['Total Students','428'],['New Admissions','28'],['Active Students','416']],heads:['STUDENT','UPI NO.','CLASS','GENDER','STATUS'],rows:[['Angela Otieno','GFA-2026-0428','Grade 4','Female','Active'],['Michael Kariuki','GFA-2026-0427','Grade 2','Male','Active'],['Winnie Njeri','GFA-2026-0426','PP2','Female','Pending'],['Brian Kamau','GFA-2026-0425','Grade 6','Male','Active'],['Faith Wanjiku','GFA-2026-0424','Grade 1','Female','Active'],['Joy Achieng','GFA-2025-0311','Grade 4','Female','Active'],['Kevin Mutua','GFA-2025-0298','Grade 4','Male','Active'],['Ian Barasa','GFA-2024-0187','Grade 4','Male','Active']]},
  teachers:{title:'Teachers & Staff',subtitle:'Manage teaching and non-teaching staff information.',stats:[['Total Staff','32'],['Teaching Staff','26'],['Support Staff','6']],heads:['STAFF MEMBER','EMPLOYEE ID','ROLE','PHONE','STATUS'],rows:[['Mary Wambui','EMP-001','Headteacher','07XX XXX 101','Active'],['Peter Otieno','EMP-002','Class Teacher','07XX XXX 102','Active'],['Grace Njeri','EMP-003','Mathematics','07XX XXX 103','Active'],['David Kamau','EMP-004','Accountant','07XX XXX 104','Active']]},
@@ -273,7 +273,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await loadStudentsRemote(r);await loadPromosRemote(r);await loadUsersRemote(r);await loadAttendanceRemote(r);await loadResultsRemote(r);await loadFeesRemote(r);await loadCommRemote(r);await loadOtherMetaRemote(r);
+ await Promise.all([loadStudentsRemote(r),loadPromosRemote(r),loadUsersRemote(r),loadAttendanceRemote(r),loadResultsRemote(r),loadFeesRemote(r),loadCommRemote(r),loadOtherMetaRemote(r)]);rebuildStudents();
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }

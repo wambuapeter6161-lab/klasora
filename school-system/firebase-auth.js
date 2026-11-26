@@ -242,12 +242,14 @@ async function saveResults(schoolId, entries) {
 // School-wide settings stored as small JSON documents (subjects, teacher subjects, learner subject choices)
 async function loadMeta(schoolId, keys) {
   const out = {};
-  for (const key of (keys || ["config", "stusubj", "feestr", "ann", "staff", "imports", "classteachers"])) {
+  const list = keys || ["config", "stusubj", "feestr", "ann", "staff", "imports", "classteachers"];
+  // Read every settings document at the same time instead of one after another.
+  await Promise.all(list.map(async key => {
     try {
       const s = await getDoc(doc(db, "schools", schoolId, "meta", key));
       if (s.exists()) out[key] = JSON.parse(s.data().json || "null");
     } catch (e) { if (e.code !== "permission-denied") throw e; }
-  }
+  }));
   return out;
 }
 async function saveMeta(schoolId, key, value) {
