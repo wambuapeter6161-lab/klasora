@@ -632,3 +632,26 @@ html.klasora-win .login-card{max-width:460px;padding:34px 32px}
 @media print{
   html.klasora-win #cardBackdrop,html.klasora-win #cardBackdrop .modal{height:auto;padding:0;background:#fff}
 }
+
+
+/* ===== parent results & report cards: Term 1, 2, 3 side by side ===== */
+.rp-row{display:flex;gap:14px;overflow-x:auto;padding:4px 3px 14px;margin:0 0 6px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;align-items:flex-start}
+.rp-col{flex:0 0 min(340px,88vw);scroll-snap-align:start;background:#fff;border:1px solid #e7edf5;border-radius:14px;padding:12px;box-shadow:0 5px 18px #19365d0d;min-width:0}
+.rp-cardcol{background:transparent;border:0;box-shadow:none;padding:0}
+.rp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
+.rp-head b{font:800 13px Manrope,sans-serif;color:#183253}.rp-head small{color:#91a0b3;font-weight:700}
+.rp-tw{margin-top:6px}
+.rp-table{width:100%;border-collapse:collapse;white-space:nowrap}
+.rp-table th{font-size:9px;padding:8px 7px}.rp-table td{font-size:11px;padding:8px 7px;color:#33445f}
+.rp-table td:first-child{white-space:normal;min-width:110px;font-weight:700}
+.rp-table tfoot td{border-top:2px solid #e7edf5;border-bottom:0;color:#183253}
+.rp-sc{font-weight:800;margin-right:3px}.rp-dash{color:#b3bdca}
+.rp-cardcol .report-card{margin:0}
+/* PC: the three terms share the whole width */
+html.klasora-win .rp-col{flex:1 1 0;min-width:360px}
+@media(min-width:1100px){.rp-col{flex:1 1 0;min-width:360px}}
+@media print{
+ body.print-one .rp-row .rp-col:not(.print-this),body.print-one .section-title,body.print-one .rp-head{display:none!important}
+ body.print-one .rp-row{display:block;overflow:visible}
+ body.print-one .rp-col.print-this{display:block;border:0;box-shadow:none;padding:0}
+}

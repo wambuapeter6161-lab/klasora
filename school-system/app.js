@@ -1247,18 +1247,36 @@ $('subjectsPage').addEventListener('click',e=>{const b=e.target.closest('[data-s
  else if(a==='restore'){delete SUBJ.added[subjGrade];delete SUBJ.removed[subjGrade];saveSubj();toast('Default subjects restored.');renderSubjects();}});
 
 /* ----- parent: report cards ----- */
-let rpChild='',rpKey='';
+let rpChild='',rpYear=0;
+/* parent: results + report cards for Term 1, 2 and 3, laid out side by side */
+function termScoreCell(m,x){const v=m&&m[x];if(!v||v.pct==null)return'<span class="rp-dash">–</span>';const l=levelCode(v.pct);return`<span class="rp-sc">${escH(String(v.raw!=null&&String(v.raw).includes('/')?v.raw:Math.round(v.pct)+'%'))}</span> <span class="lv ${l}">${l}</span>`;}
+function termResultsHtml(s,y,t,keysOfTerm){
+ const label='Term '+t;
+ if(!keysOfTerm.length)return`<div class="rp-col"><div class="rp-head"><b>${label}</b><small>${y}</small></div><div class="bk-note">${label} results have not been released yet.</div></div>`;
+ const exs=keysOfTerm.slice().sort((a,b)=>reportOrder(a)-reportOrder(b)),ms=exs.map(k=>marksOf(s.adm,k));
+ const subs=[];exs.forEach((k,i)=>orderedSubjects(s,ms[i]).forEach(x=>{if(!subs.includes(x))subs.push(x);}));
+ const avgs=ms.map(m=>{const v=Object.keys(m).map(x=>m[x].pct).filter(p=>p!=null);return v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):null;});
+ return`<div class="rp-col"><div class="rp-head"><b>${label}</b><small>${y}</small></div><div class="table-wrap rp-tw"><table class="rp-table"><thead><tr><th>SUBJECT</th>${exs.map(k=>`<th>${escH(examLabel(k.split('-')[2]).toUpperCase())}</th>`).join('')}</tr></thead><tbody>${subs.map(x=>`<tr><td>${escH(x)}</td>${ms.map(m=>`<td>${termScoreCell(m,x)}</td>`).join('')}</tr>`).join('')}</tbody><tfoot><tr><td><b>Average</b></td>${avgs.map(a=>`<td><b>${a==null?'–':a+'%'}</b></td>`).join('')}</tr></tfoot></table></div></div>`;}
 function renderParentReports(){
  const kids=childrenOf(currentUser),box=$('examsPage');
  if(!kids.length){box.innerHTML='<div class="bk-note">No learners are linked to this account yet.</div>';return}
  if(!kids.some(k=>k.adm===rpChild))rpChild=kids[0].adm;
- const s=kids.find(k=>k.adm===rpChild),keys=reportKeys(s);if(!keys.includes(rpKey))rpKey=keys[0]||'';
- box.innerHTML=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">REPORT CARD</span><small>${escH(s.name)} · ${s.cls}</small></div></div>
+ const s=kids.find(k=>k.adm===rpChild),keys=reportKeys(s),years=[...new Set(keys.map(k=>+k.split('-')[0]))].sort((a,b)=>b-a);
+ if(!years.includes(rpYear))rpYear=years[0]||new Date().getFullYear();
+ const head=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">RESULTS &amp; REPORT CARDS</span><small>${escH(s.name)} · ${s.cls}</small></div></div>
  ${kids.length>1?`<div class="sj-chips">${kids.map(k=>`<button type="button" class="sj-chip${k.adm===rpChild?' on':''}" data-rp="child" data-adm="${k.adm}">${escH(k.name.split(' ')[0])}</button>`).join('')}</div>`:''}
- ${keys.length>1?`<div class="reg-tools"><select id="rpSel" class="reg-select">${keys.map(k=>`<option value="${k}"${k===rpKey?' selected':''}>Term ${k.split('-')[1].slice(1)} · ${examLabel(k.split('-')[2])} · ${k.split('-')[0]}</option>`).join('')}</select></div>`:''}
- ${rpKey?reportCardHtml(s,rpKey)+'<div class="bk-actions" style="margin:12px 3px"><button type="button" class="reg-btn green" data-rp="print">Print / Save PDF</button></div>':`<div class="bk-note">${escH(s.name.split(' ')[0])}’s report card will appear here when the class teacher releases the results.</div>`}`;}
-$('examsPage').addEventListener('click',e=>{const b=e.target.closest('[data-rp]');if(!b)return;if(b.dataset.rp==='child'){rpChild=b.dataset.adm;rpKey='';renderParentReports();}else if(b.dataset.rp==='print')window.print();});
-$('examsPage').addEventListener('change',e=>{if(e.target.id==='rpSel'){rpKey=e.target.value;renderParentReports();}});
+ ${years.length>1?`<div class="reg-tools"><select id="rpYearSel" class="reg-select">${years.map(y=>`<option value="${y}"${y===rpYear?' selected':''}>Year ${y}</option>`).join('')}</select></div>`:''}`;
+ if(!keys.length){box.innerHTML=head+`<div class="bk-note">${escH(s.name.split(' ')[0])}’s results and report cards will appear here when the class teacher releases the results.</div>`;return}
+ const byTerm=t=>keys.filter(k=>{const p=k.split('-');return+p[0]===rpYear&&+p[1].slice(1)===t;});
+ const terms=[1,2,3],res=terms.map(t=>termResultsHtml(s,rpYear,t,byTerm(t))).join('');
+ const cards=terms.map(t=>{const ks=byTerm(t).sort((a,b)=>reportOrder(b)-reportOrder(a));
+  return ks.length?`<div class="rp-col rp-cardcol" data-term="${t}"><div class="rp-head"><b>Term ${t} Report Card</b><button type="button" class="reg-btn green" data-rp="printterm" data-term="${t}">Print / Save PDF</button></div>${reportCardHtml(s,ks[0])}</div>`
+  :`<div class="rp-col"><div class="rp-head"><b>Term ${t} Report Card</b></div><div class="bk-note">Term ${t} report card is not released yet.</div></div>`;}).join('');
+ box.innerHTML=head+`<div class="section-title">RESULTS · ${rpYear}</div><div class="rp-row">${res}</div><div class="section-title">REPORT CARDS · ${rpYear}</div><div class="rp-row">${cards}</div>`;}
+$('examsPage').addEventListener('click',e=>{const b=e.target.closest('[data-rp]');if(!b)return;
+ if(b.dataset.rp==='child'){rpChild=b.dataset.adm;rpYear=0;renderParentReports();}
+ else if(b.dataset.rp==='printterm'){const col=b.closest('.rp-cardcol');if(!col)return;col.classList.add('print-this');document.body.classList.add('print-one');window.print();setTimeout(()=>{col.classList.remove('print-this');document.body.classList.remove('print-one');},800);}});
+$('examsPage').addEventListener('change',e=>{if(e.target.id==='rpYearSel'){rpYear=+e.target.value;renderParentReports();}});
 function closeAcademic(){['resBackdrop','subjBackdrop','cardBackdrop','promoBackdrop','dobBackdrop'].forEach(i=>$(i).classList.add('hidden'));}
 
 /* ----- teacher: stat boxes open details (Students and Attendance pages) ----- */
