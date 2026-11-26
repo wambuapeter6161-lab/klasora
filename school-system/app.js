@@ -321,19 +321,21 @@ function signOut(message){
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
 }
 async function restoreSession(){
+ // Stay signed in until the person taps Sign out. The login screen stays hidden while the saved session is checked, so it never flashes.
+ const had=!!store.get(SESSION_KEY);
+ if(had)$('loginScreen').classList.add('restoring');
  try{
-  const sv=JSON.parse(store.get(SESSION_KEY)||'null');
   let tries=0;while(!window.KlasoraFirebase&&tries++<50)await new Promise(r=>setTimeout(r,100));
   if(!window.KlasoraFirebase)return;
   const r=await KlasoraFirebase.restore();
   if(!r)return;
-  if(sv&&sv.id==='fb_'+r.user.uid&&Date.now()-sv.ts<IDLE_MINUTES*60000){await beginFirebaseSession(r,false);lastActive=sv.ts;}
-  else{store.del(SESSION_KEY);await KlasoraFirebase.signOut();if(sv)showLoginMsg(`Your session expired after ${IDLE_MINUTES} minutes of inactivity. Please sign in again.`,'info');}
- }catch(e){store.del(SESSION_KEY);}
+  await beginFirebaseSession(r,false);lastActive=Date.now();
+ }catch(e){}
+ finally{$('loginScreen').classList.remove('restoring');}
 }
 function touch(){if(!currentUser)return;lastActive=Date.now();if(lastActive-lastSaved>10000)saveSession();}
 ['click','keydown','touchstart','scroll'].forEach(ev=>document.addEventListener(ev,touch,{passive:true}));
-setInterval(()=>{if(currentUser&&currentUser.status!=='Active'){signOut('Your account is no longer active. Please contact the school administrator.');return}if(currentUser&&Date.now()-lastActive>IDLE_MINUTES*60000)signOut(`You were signed out after ${IDLE_MINUTES} minutes of inactivity.`);},15000);
+setInterval(()=>{if(currentUser&&currentUser.status!=='Active'){signOut('Your account is no longer active. Please contact the school administrator.');return}},15000);
 $('signOutBtn').onclick=()=>signOut('You have been signed out.');
 $('topUser').onclick=e=>{e.stopPropagation();$('userMenu').classList.toggle('hidden');};
 document.addEventListener('click',e=>{const um=$('userMenu');if(!um.contains(e.target))um.classList.add('hidden');if(e.target.id==='menuSignOut')signOut('You have been signed out.');if(e.target.id==='menuProfile'){um.classList.add('hidden');openProfile();}});

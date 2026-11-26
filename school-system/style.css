@@ -600,3 +600,6 @@ tr.row-click:focus-visible{outline:2px solid #4b93ff;outline-offset:-2px}
 .role-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:#eef2f9;border-radius:11px;padding:4px;margin:0 0 16px}
 .role-tab{border:0;background:transparent;border-radius:8px;padding:9px 2px;font:700 11px 'DM Sans',sans-serif;color:#5b6b82;cursor:pointer}
 .role-tab.on{background:#fff;color:#173b70;box-shadow:0 1px 4px #0a1f4226}
+
+/* hidden while a saved sign-in is being restored */
+.login-screen.restoring{visibility:hidden}
