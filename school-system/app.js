@@ -1447,7 +1447,16 @@ const tMatch=(v,page)=>page==='classes'?(String(v)===TEACHER_CLASS||String(v).st
 let CT_DIR={};
 const teacherOf=cls=>{const k=normKey(cls),u=USERS.find(u=>u.role==='teacher'&&normKey(u.className)===k&&u.status==='Active');return u||(CT_DIR[k]?{id:'dir_'+k,name:CT_DIR[k],role:'teacher',className:k,status:'Active'}:undefined);};
 function saveClassTeacherDir(){if(!currentUser||currentUser.role!=='admin')return;publishParentLinks();const d={};USERS.filter(u=>u.role==='teacher'&&u.className&&u.status==='Active').forEach(u=>{d[normKey(u.className)]=u.name});CT_DIR=d;saveMetaRemote('classteachers',d);}
-const saveImportsRemote=()=>{saveMetaRemote('imports',{imports:IMPORTS,hide:HIDE});return true;};
+const saveImportsRemote=()=>{
+ if(currentUser&&currentUser.role==='accountant'){
+  /* the accountant only owns the expenses and fees records: merge them into the latest saved copy so the administrator's other imports are never overwritten */
+  (async()=>{try{
+   const m=await KlasoraFirebase.loadMeta(currentUser.schoolId,['imports']),cur=m.imports||{},imps={...(cur.imports||{})},hide={...(cur.hide||{})};
+   ['expenses','fees'].forEach(k=>{imps[k]=IMPORTS[k]||[];if(HIDE[k])hide[k]=true;else delete hide[k];});
+   await KlasoraFirebase.saveMeta(currentUser.schoolId,'imports',{imports:imps,hide});
+  }catch(e){toast(e.code==='permission-denied'?'Your account is not allowed to save this yet. Ask the administrator to check the Firebase rules.':'Not saved. Check your internet and try again.');}})();
+  return true;}
+ saveMetaRemote('imports',{imports:IMPORTS,hide:HIDE});return true;};
 async function loadOtherMetaRemote(r){
  CT_DIR={};LINKED=new Set();LINKED_PUB='';
  try{
