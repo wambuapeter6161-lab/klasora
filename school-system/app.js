@@ -280,7 +280,7 @@ function userFromFirebase(r){
 }
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
- await Promise.all([loadStudentsRemote(r),loadPromosRemote(r),loadUsersRemote(r),loadAttendanceRemote(r),loadResultsRemote(r),loadFeesRemote(r),loadCommRemote(r),loadOtherMetaRemote(r)]);rebuildStudents();
+ await Promise.all([loadStudentsRemote(r),loadPromosRemote(r),loadUsersRemote(r),loadAttendanceRemote(r),loadResultsRemote(r),loadFeesRemote(r),loadCommRemote(r),loadOtherMetaRemote(r)]);rebuildStudents();if(r.profile.role==='admin')publishParentLinks();
  store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
@@ -322,7 +322,7 @@ function startSession(u,fresh){
 }
 function saveSession(){lastSaved=Date.now();store.set(SESSION_KEY,JSON.stringify({id:currentUser.id,ts:lastSaved}));}
 function signOut(message){
- currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;CT_DIR={};IMPORTS={teachers:[],fees:[],expenses:[],library:[],inventory:[]};HIDE={};try{applyImports()}catch(e){}PROMO={log:[],overrides:{},done:{}};INBOX=[];PAYNOTES=[];ANN=[];STAFF=[];PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
+ currentUser=null;store.del(SESSION_KEY);try{if(window.KlasoraFirebase)KlasoraFirebase.signOut()}catch(e){}EXTRA=[];rebuildStudents();USERS.length=0;CT_DIR={};LINKED=new Set();LINKED_PUB='';IMPORTS={teachers:[],fees:[],expenses:[],library:[],inventory:[]};HIDE={};try{applyImports()}catch(e){}PROMO={log:[],overrides:{},done:{}};INBOX=[];PAYNOTES=[];ANN=[];STAFF=[];PAYLOG=[];FEESTR={};_fsCache={};REG={};REG_DIRTY.clear();RES={marks:{},notes:{},gen:{}};SUBJ={added:{},removed:{}};STUSUBJ={};TS=[];RES_DIRTY.clear();try{store.del(SCHOOL_KEY);applySchool()}catch(e){}
  closeSidebar();closeModal();closeProfile();closeStudentForm();closeAcademic();closePw();closePd();$('supportBackdrop').classList.add('hidden');$('detailBackdrop').classList.add('hidden');$('userMenu').classList.add('hidden');
  $('appShell').classList.add('hidden');$('loginScreen').classList.remove('hidden');
  showLoginMsg(message||'You have been signed out.','info');window.scrollTo(0,0);
@@ -417,6 +417,7 @@ function showPage(page){
  if(page==='subjects')renderSubjects();
  if(page==='classteachers')renderClassTeachers();
  if(page==='allstudents')renderAllStudents(true);
+ commUi(page,true);
  const add=(canAdd(page)||(page==='fees'&&currentUser.role==='parent'))&&!(page==='fees'&&!['accountant','parent'].includes(currentUser.role));
  document.querySelectorAll('.heading-actions .btn-primary,.module-toolbar .btn-primary').forEach(b=>b.classList.toggle('hidden',!add));
  document.querySelectorAll('.module-toolbar .btn-primary').forEach(b=>{b.textContent=page==='fees'?(currentUser.role==='parent'?'💳 Report a payment':'＋ Record Payment'):page==='classes'?'＋ Add Teacher':page==='communication'?'＋ Add Announcement':'＋ Add New';});
@@ -468,6 +469,8 @@ function openQuickAdd(){
  if(page==='teachers'){openStaffChooser();return}
  if(page==='communication'){openAnnouncementForm();return}
  if(currentUser.role==='admin'&&page==='inventory'){openInventoryChooser();return}
+ if(page==='expenses'&&(currentUser.role==='admin'||currentUser.role==='accountant')){openExpenseForm();return}
+ if(page==='communication'&&currentUser.role==='accountant'){openMessageForm();return}
  if(currentUser.role==='admin'&&page==='parents'){openParentForm();return}
  if(currentUser.role==='admin'&&(page==='students'||page==='dashboard')){openStudentForm();return}
  $('modalTitle').textContent='Add '+(ADD_LABELS[page]||'Record');
@@ -588,8 +591,9 @@ function openDetail(key){
  if(!currentUser||currentUser.role!=='admin'||!DETAILS[key])return;
  showDetail(DETAILS[key]());
 }
+const ACC_BAR_PAGES=['students','parents','fees','expenses','communication','reports'];
 function openModuleDetail(page,i){
- if(!currentUser)return;const admin=currentUser.role==='admin',src=admin?MSD[page]:currentUser.role==='teacher'?TEACHER_MSD[page]:(currentUser.role==='accountant'&&page==='fees')?MSD[page]:null;
+ if(!currentUser)return;const admin=currentUser.role==='admin',src=admin?MSD[page]:currentUser.role==='teacher'?TEACHER_MSD[page]:(currentUser.role==='accountant'&&ACC_BAR_PAGES.includes(page))?MSD[page]:null;
  if(!src||!src[i])return;
  const st=getModule(page).stats[i],d=(admin&&isLive(page)&&LIVE_SPEC[page]?LIVE_SPEC[page].details[i]:src[i])(),t=THEME[page]||['blue','teal','purple'],g=G[t[i%3]];
  showDetail({grad:[g[0],g[1]],label:st[0],value:st[1],title:st[0],sub:d.sub,body:d.sections.map(s=>sec(s[0],s[1])).join(''),go:d.go||null,goLabel:d.goLabel||'View Records'});
@@ -610,7 +614,7 @@ const G={blue:['#4b93ff','#1d4ed8','#2563eb'],sky:['#38bdf8','#0369a1','#0284c7'
 const THEME={students:['blue','sky','teal'],teachers:['purple','indigo','pink'],classes:['teal','blue','amber'],attendance:['green','rose','amber'],exams:['indigo','purple','orange'],fees:['blue','green','orange'],expenses:['rose','amber','purple'],library:['purple','indigo','rose'],transport:['amber','sky','green'],inventory:['slate','teal','orange'],communication:['pink','purple','sky'],reports:['indigo','blue','teal'],users:['blue','purple','green'],settings:['blue','teal','purple']};
 const MS_ICONS={students:['🎓','🆕','✅'],teachers:['👥','🍎','🛠️'],classes:['🏫','👥','👩‍🏫'],attendance:['✅','❌','⏰'],exams:['📝','📊','🔎'],fees:['🧾','💰','⏳'],expenses:['💸','🕐','📅'],library:['📖','🔖','⚠️'],transport:['🚌','🛣️','🧒'],inventory:['📦','📉','📥'],communication:['📣','📅','💬'],reports:['📈','🗂️','⏱️'],users:['🔐','🛡️','🟢']};
 function renderModuleStats(page,m){
- const t=THEME[page]||['blue','teal','purple'],ic=MS_ICONS[page]||[],click=(currentUser.role==='admin'&&!!MSD[page])||(currentUser.role==='teacher'&&!!TEACHER_MSD[page])||(currentUser.role==='accountant'&&page==='fees');
+ const t=THEME[page]||['blue','teal','purple'],ic=MS_ICONS[page]||[],click=(currentUser.role==='admin'&&!!MSD[page])||(currentUser.role==='teacher'&&!!TEACHER_MSD[page])||(currentUser.role==='accountant'&&ACC_BAR_PAGES.includes(page)&&!!MSD[page]);
  const gp=$('genericPage');gp.style.setProperty('--accent',G[t[0]][2]);gp.style.setProperty('--accent-soft',G[t[0]][2]+'14');
  $('moduleStats').innerHTML=m.stats.map((s,i)=>{const g=G[t[i%3]],tag=click?'button type="button"':'div',end=click?'button':'div';
   return `<${tag} class="mini-stat ms-card${click?'':' static'}" ${click?`data-ms="${i}"`:''} style="--g1:${g[0]};--g2:${g[1]};--glow:${g[1]}59"><span class="ms-icon">${ic[i]||'●'}</span><small>${s[0]}</small><strong>${s[1]}</strong>${click?'<span class="ms-tap">Details ›</span>':''}</${end}>`;}).join('');
@@ -712,7 +716,9 @@ rebuildStudents();
 function allStudents(){return modules.students.rows.map(r=>{const x=EXTRA.find(e=>e.adm===r[1]),g=x?{name:x.parent,phone:x.phone,relation:x.relation}:(GUARDIAN_SEED[r[1]]||{name:'—',phone:'',relation:''});
  return{name:r[0],adm:r[1],cls:r[2],gender:r[3],status:r[4],dob:x?x.dob:'',gname:g.name,gphone:g.phone,relation:g.relation};});}
 function guardians(){const map={};allStudents().forEach(s=>{if(!s.gphone)return;const g=map[s.gphone]||(map[s.gphone]={phone:s.gphone,names:[],kids:[],relation:s.relation});if(!g.names.includes(s.gname))g.names.push(s.gname);g.kids.push(s);});return Object.values(map);}
-const accountFor=phone=>USERS.find(u=>u.role==='parent'&&u.linkPhone===phone);
+let LINKED=new Set(),LINKED_PUB='';
+const accountFor=phone=>USERS.find(u=>u.role==='parent'&&u.linkPhone===phone)||(currentUser&&currentUser.role==='accountant'&&LINKED.has(phone)?{role:'parent',linkPhone:phone,stub:true}:undefined);
+function publishParentLinks(){if(!currentUser||currentUser.role!=='admin')return;const l=[...new Set(USERS.filter(u=>u.role==='parent'&&u.linkPhone&&!u.disabled).map(u=>u.linkPhone))].sort(),j=JSON.stringify(l);if(j===LINKED_PUB)return;LINKED_PUB=j;saveMetaRemote('parentlinks',l);}
 const childrenOf=u=>allStudents().filter(s=>s.gphone===u.linkPhone);
 
 function stuNums(){
@@ -797,6 +803,7 @@ MSD.parents=[
  ()=>{const g=guardians(),c=k=>String(g.filter(x=>x.relation===k).length);return{sub:'Parents and guardians on file',sections:[['BY RELATIONSHIP',[['Mothers',c('Mother')],['Fathers',c('Father')],['Guardians',c('Guardian')]]],['FAMILIES',[['With more than one child',String(g.filter(x=>x.kids.length>1).length)],['Learners covered',String(allStudents().length)]]]]};},
  ()=>{const l=guardians().filter(x=>accountFor(x.phone));return{sub:'Parents who created a portal account',sections:[['LINKED',l.length?l.slice(0,8).map(x=>[x.names[0],fmtPhone(x.phone)+' · '+x.kids.map(k=>k.name.split(' ')[0]).join(', ')]):[['None yet','-']]]]};},
  ()=>{const l=guardians().filter(x=>!accountFor(x.phone));return{sub:'Share the sign-up steps with these parents',sections:[['NOT YET REGISTERED',l.slice(0,8).map(x=>[x.names[0],fmtPhone(x.phone)])],['HOW THEY SIGN UP',[['Step 1','Open Klasora and tap Create Parent Account'],['Step 2','Enter the school code, your registered name and your child’s UPI number']]]]};}];
+const PARENT_MSD=MSD.parents.slice();
 MSD.users[1]=()=>{const p=USERS.filter(u=>u.role==='parent');return{sub:'Parents who created portal accounts',sections:[['PARENT ACCOUNTS',p.length?p.map(u=>[u.name,fmtPhone(u.linkPhone)+' · '+(childrenOf(u).map(c=>c.name.split(' ')[0]).join(', ')||'no children')]):[['None yet','-']]]]};};
 
 /* ----- create a parent account (used by the sign-up form) ----- */
@@ -1439,13 +1446,14 @@ $('allStudentsPage').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target
 const tMatch=(v,page)=>page==='classes'?(String(v)===TEACHER_CLASS||String(v).startsWith(TEACHER_CLASS+' ')):String(v)===TEACHER_CLASS;
 let CT_DIR={};
 const teacherOf=cls=>{const k=normKey(cls),u=USERS.find(u=>u.role==='teacher'&&normKey(u.className)===k&&u.status==='Active');return u||(CT_DIR[k]?{id:'dir_'+k,name:CT_DIR[k],role:'teacher',className:k,status:'Active'}:undefined);};
-function saveClassTeacherDir(){if(!currentUser||currentUser.role!=='admin')return;const d={};USERS.filter(u=>u.role==='teacher'&&u.className&&u.status==='Active').forEach(u=>{d[normKey(u.className)]=u.name});CT_DIR=d;saveMetaRemote('classteachers',d);}
+function saveClassTeacherDir(){if(!currentUser||currentUser.role!=='admin')return;publishParentLinks();const d={};USERS.filter(u=>u.role==='teacher'&&u.className&&u.status==='Active').forEach(u=>{d[normKey(u.className)]=u.name});CT_DIR=d;saveMetaRemote('classteachers',d);}
 const saveImportsRemote=()=>{saveMetaRemote('imports',{imports:IMPORTS,hide:HIDE});return true;};
 async function loadOtherMetaRemote(r){
- CT_DIR={};
+ CT_DIR={};LINKED=new Set();LINKED_PUB='';
  try{
-  const m=await KlasoraFirebase.loadMeta(r.schoolId,['classteachers'].concat(r.profile.role==='admin'?['imports']:[]));
+  const m=await KlasoraFirebase.loadMeta(r.schoolId,['classteachers','parentlinks'].concat(r.profile.role==='admin'||r.profile.role==='accountant'?['imports']:[]));
   if(m.classteachers&&typeof m.classteachers==='object')CT_DIR=m.classteachers;
+  if(Array.isArray(m.parentlinks)){LINKED=new Set(m.parentlinks);LINKED_PUB=JSON.stringify(m.parentlinks.slice().sort());}
   if(m.imports){IMPORTS={teachers:[],fees:[],expenses:[],library:[],inventory:[],...(m.imports.imports||{})};HIDE=m.imports.hide||{};applyImports();rebuildStudents();}
  }catch(e){}
 }
@@ -1602,7 +1610,7 @@ function promoSec(adm){const p=promoRecent(adm);if(!p)return'';return sec('PROMO
 /* ----- notifications (bell) ----- */
 function notifications(){const u=currentUser,out=[];if(!u)return out;
  const seen=NOTE_SEEN[u.id]||'',now=new Date().toISOString();
- INBOX.filter(m=>msgFor(m,u)).forEach(m=>out.push({id:m.id,icon:m.icon,title:m.title,text:m.text,date:m.date,act:m.act,actLabel:m.actLabel,ref:m.ref,unread:!seen||m.date>seen}));
+ INBOX.filter(m=>msgFor(m,u)).forEach(m=>out.push({id:m.id,icon:m.icon,title:m.title,text:chatFrom(m)+m.text,date:m.date,act:m.act,actLabel:m.actLabel,ref:m.ref,unread:!seen||m.date>seen}));
  if(u.role==='teacher'){const cu=catchUp(TEACHER_CLASS),nx=nextClass(TEACHER_CLASS);
   if(cu)out.push({icon:'📣',title:'Please promote your '+TEACHER_CLASS+' learners to '+cu.nx,text:cu.lower+' has already promoted '+cu.arrivals.length+' learner'+(cu.arrivals.length===1?'':'s')+' into your class. Promote your '+cu.waiting.length+' '+TEACHER_CLASS+' learner'+(cu.waiting.length===1?'':'s')+' so the two groups stay separate.'+(cu.ready?'':' Enter their Term 3 End Term results first.'),act:cu.ready?'promote':'results',actLabel:cu.ready?'Promote to '+cu.nx:'Enter Term 3 results',date:now,unread:true});
   else{const y=pendingPromotion(TEACHER_CLASS);if(y)out.push({icon:'🎓',title:'Term 3 '+y+' is complete for '+TEACHER_CLASS,text:nx==='Completed'?'Mark who has completed school, who repeats and who transfers.':'Choose who is promoted to '+nx+', who repeats and who transfers.',act:'promote',actLabel:'Promote learners',date:now,unread:true});}}
@@ -2063,10 +2071,10 @@ function openMemberDetail(m){
   body:sec('DETAILS',[['Class',escH(tm.cls)],['Role',p.role],['Number in list',String(m.i+1)]])+sec('SUBJECTS',p.subjects.length?p.subjects.map((x,i)=>[String(i+1),escH(x)]):[['None added yet','']]),go:null,goLabel:'Back to list'});
 }
 function rerenderPage(){
- if(!currentUser)return;const pg=activePage();if(!['classes','teachers','communication','inventory','parents'].includes(pg))return;
+ if(!currentUser)return;const pg=activePage();if(!['classes','teachers','communication','inventory','parents','expenses'].includes(pg))return;
  if(pg==='classes')refreshClassRows();if(pg==='communication')refreshAnnRows();
  const m=getModule(pg),q=$('moduleSearch').value.toLowerCase();
- renderModuleStats(pg,m);renderTable(q?m.rows.filter(r=>r.join(' ').toLowerCase().includes(q)):m.rows,false);
+ renderModuleStats(pg,m);renderTable(q?m.rows.filter(r=>r.join(' ').toLowerCase().includes(q)):m.rows,false);if(pg==='communication')commUi(pg);
 }
 
 /* ----- admin: add a teacher and the subjects they teach ----- */
@@ -2411,6 +2419,149 @@ $('pdModal').addEventListener('click',e=>{
  Object.defineProperty(modules.reports,'stats',{configurable:true,get(){const ym=new Date().toISOString().slice(0,7);return[['Available Reports',String(allStudents().length?modules.reports.rows.length:0)],['Generated This Month',String(Object.values(RES.gen).filter(d=>String(d).slice(0,7)===ym).length)],['Scheduled','0']];}});
  Object.defineProperty(modules.settings,'stats',{configurable:true,get(){return[['School Profile','Complete'],['Academic Year',String(new Date().getFullYear())],['Accounts',String(USERS.filter(u=>u.role!=='admin').length)]];}});
 })();
+
+/* ================= Accountant: working bars, expenses, and messages ================= */
+ROLES.accountant.add.push('communication');
+const chatInfo=m=>{const p=String(m&&m.ref||'').split('|');return p[0]==='chat'?{role:p[1]||'',name:p[2]||'',to:p[3]||''}:null;};
+function chatFrom(m){const c=chatInfo(m);return c?'From '+c.name+(c.role?' ('+c.role+'): ':': '):'';}
+const clPipe=v=>String(v==null?'':v).replace(/\|/g,' ').replace(/\s+/g,' ').trim();
+
+/* ----- sent messages (kept on this device and re-read from the school's records) ----- */
+let SENT=[],SENT_FOR='';
+const saveSent=()=>{if(currentUser)store.set('klasora_sent_'+currentUser.id,JSON.stringify(SENT.slice(-100)));};
+function ensureSent(){
+ if(!currentUser||SENT_FOR===currentUser.id)return;SENT_FOR=currentUser.id;
+ try{SENT=JSON.parse(store.get('klasora_sent_'+currentUser.id))||[];}catch(e){SENT=[];}
+ loadSentRemote();
+}
+async function loadSentRemote(){
+ try{
+  if(!(window.KlasoraFirebase&&KlasoraFirebase.loadSentMessages))return;
+  const list=await KlasoraFirebase.loadSentMessages({schoolId:currentUser.schoolId,user:{uid:currentUser.uid}});let ch=false;
+  list.forEach(d=>{const p=String(d.ref||'').split('|');if(p[0]!=='chat')return;const ex=SENT.find(x=>x.id===d.id);
+   if(ex){if(ex.status!=='Delivered'){ex.status='Delivered';ch=true;}return;}
+   SENT.push({id:d.id,to:d.to||[],toLabel:p[3]||'',title:d.title||'',text:d.text||'',date:d.date,status:'Delivered'});ch=true;});
+  if(ch){SENT.sort((a,b)=>String(a.date).localeCompare(String(b.date)));saveSent();if(currentUser&&activePage()==='communication')commUi('communication');}
+ }catch(e){/* the list on this device is still shown */}
+}
+const commInbox=()=>currentUser?INBOX.filter(m=>msgFor(m,currentUser)).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))):[];
+function commCounts(){ensureSent();const u=currentUser||{role:'admin'};return{ann:buildAnnRows().filter(r=>r.meta&&annVisible(r.meta.aud,u.role)).length,inbox:commInbox().length,sent:SENT.length};}
+Object.defineProperty(modules.communication,'stats',{configurable:true,get(){const c=commCounts();return[['Announcements',String(c.ann)],['Messages Received',String(c.inbox)],['Messages Sent',String(c.sent)]];},set(v){}});
+MS_ICONS.communication=['📣','📥','📤'];
+const fromTxt=m=>{const c=chatInfo(m);return c?c.name+(c.role?' ('+c.role+')':''):'School system';};
+MSD.communication=[
+ ()=>{const r=buildAnnRows().filter(x=>x.meta&&annVisible(x.meta.aud,currentUser.role));return{sub:'Announcements for the school',sections:[['BY AUDIENCE',ANN_AUD.map(a=>[a,String(r.filter(x=>x.meta.aud===a).length)])],['LATEST',r.length?r.slice(0,5).map(x=>[x.meta.title,x.meta.date]):[['None yet','-']]]]};},
+ ()=>{const l=commInbox(),seen=currentUser&&NOTE_SEEN[currentUser.id]||'',n=l.filter(m=>!seen||m.date>seen).length;return{sub:'Messages written to you',sections:[['SUMMARY',[['Received',String(l.length)],['New',String(n)]]],['LATEST',l.length?l.slice(0,5).map(m=>[m.title||'Message',fromTxt(m)]):[['None yet','-']]]],go:'communication',goLabel:'Open Messages'};},
+ ()=>{ensureSent();const l=SENT.slice().reverse();return{sub:'Messages you wrote',sections:[['SUMMARY',[['Sent',String(l.length)],['Delivered',String(l.filter(x=>x.status==='Delivered').length)],['Not delivered',String(l.filter(x=>x.status==='Failed').length)]]],['LATEST',l.length?l.slice(0,5).map(x=>[x.title,'To '+x.toLabel]):[['None yet','-']]]]};}];
+MSD.parents=PARENT_MSD;
+MSD.expenses=LIVE_SPEC.expenses.details;
+MSD.reports=[
+ ()=>({sub:'Reports you can open',sections:[['BY CATEGORY',cnt(modules.reports.rows,r=>r[1])]]}),
+ ()=>{const ym=new Date().toISOString().slice(0,7),n=Object.values(RES.gen).filter(d=>String(d).slice(0,7)===ym).length;return{sub:'Reports generated this month',sections:[['THIS MONTH',[['Generated',String(n)]]]]};},
+ ()=>({sub:'Reports that run on a schedule',sections:[['SCHEDULED',[['Scheduled reports','0'],['How it works','Reports are made fresh each time you open them']]]]})];
+
+/* ----- Communication page: Announcements / Inbox / Sent ----- */
+let commTab='ann';
+function commUi(page,reset){
+ const tabs=$('commTabs'),box=$('commMsgBox'),panel=document.querySelector('#genericPage .module-panel');
+ if(!tabs||!box||!panel)return;
+ const on=page==='communication'&&currentUser&&(currentUser.role==='admin'||currentUser.role==='accountant');
+ if(!on){tabs.classList.add('hidden');box.classList.add('hidden');panel.classList.remove('hidden');return;}
+ if(reset)commTab='ann';ensureSent();
+ const ni=commInbox().length;
+ tabs.innerHTML=`<button type="button" class="ct-tab${commTab==='ann'?' on':''}" data-cm="ann">Announcements</button><button type="button" class="ct-tab${commTab==='inbox'?' on':''}" data-cm="inbox">Inbox${ni?' ('+ni+')':''}</button><button type="button" class="ct-tab${commTab==='sent'?' on':''}" data-cm="sent">Sent${SENT.length?' ('+SENT.length+')':''}</button><button type="button" class="reg-btn gold ct-new" data-cm="new">✉ New message</button>`;
+ tabs.classList.remove('hidden');
+ panel.classList.toggle('hidden',commTab!=='ann');box.classList.toggle('hidden',commTab==='ann');
+ if(commTab==='inbox')renderInbox(box);else if(commTab==='sent')renderSent(box);
+}
+function renderInbox(box){
+ const l=commInbox(),seen=NOTE_SEEN[currentUser.id]||'';
+ box.innerHTML=`<div class="cm-bar"><span>${l.length} message${l.length===1?'':'s'} received</span><button type="button" class="reg-btn" data-cm="refresh">↻ Refresh</button></div>`+
+  (l.length?l.map(m=>{const nw=!seen||m.date>seen;return`<div class="cm-card${nw?' new':''}"><div class="cm-top"><strong>${escH(m.title||'Message')}</strong>${nw?'<em class="nt-new">NEW</em>':''}</div><small class="cm-meta">From ${escH(fromTxt(m))} · ${ago(m.date)}</small><p>${escH(m.text||'')}</p></div>`;}).join(''):'<div class="bk-note">No messages yet. When someone writes to you, it will show here.</div>');
+}
+function renderSent(box){
+ const l=SENT.slice().reverse();
+ box.innerHTML=`<div class="cm-bar"><span>${l.length} message${l.length===1?'':'s'} sent</span></div>`+
+  (l.length?l.map(x=>{const ok=x.status==='Delivered',bad=x.status==='Failed';return`<div class="cm-card"><div class="cm-top"><strong>${escH(x.title)}</strong><em class="cm-st ${ok?'ok':bad?'bad':''}">${ok?'✓ Delivered':bad?'Not delivered':'Sending…'}</em></div><small class="cm-meta">To ${escH(x.toLabel)} · ${ago(x.date)}</small><p>${escH(x.text)}</p>${bad?`<button type="button" class="reg-btn gold" data-cm="retry" data-id="${escH(x.id)}">Try again</button>`:''}</div>`;}).join(''):'<div class="bk-note">You have not sent any messages yet. Tap New message to write one.</div>');
+}
+async function deliverMsg(x){
+ const u=currentUser;x.status='Sending';
+ try{
+  await Promise.race([KlasoraFirebase.sendMessage(u.schoolId,x.id,{id:x.id,to:x.to,title:x.title,text:x.text,icon:'✉️',date:x.date,ref:'chat|'+clPipe(ROLES[u.role].label)+'|'+clPipe(u.name)+'|'+clPipe(x.toLabel)}),new Promise((_,rj)=>setTimeout(()=>rj(new Error('timeout')),15000))]);
+  x.status='Delivered';
+ }catch(e){x.status='Failed';}
+ saveSent();if(currentUser&&activePage()==='communication')commUi('communication');
+ return x.status;
+}
+function openMessageForm(){
+ const u=currentUser;if(!u||(u.role!=='admin'&&u.role!=='accountant'))return;
+ const opts=u.role==='admin'?[['accountant','Accountant'],['teachers','All teachers'],['parents','All parents'],['parent','One parent']]:[['admin','Administrator'],['parents','All parents'],['parent','One parent']];
+ const gs=guardians();
+ $('pdModal').innerHTML=`<div class="modal-head"><div><h3>New message</h3><p>${u.role==='admin'?'Write to the accountant, teachers or parents.':'Write to the administrator or to parents.'}</p></div><button type="button" class="modal-close" data-pd="close">×</button></div>
+ <div class="form-fields">
+  <div class="field"><label>To *</label><select id="cmTo">${opts.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join('')}</select></div>
+  <div class="field hidden" id="cmParentWrap"><label>Parent / guardian *</label><select id="cmParent">${gs.map(g=>`<option value="${escH(g.phone)}">${escH(g.names.join(' / '))} · ${escH(fmtPhone(g.phone))} · ${g.kids.map(k=>escH(k.name.split(' ')[0])).join(', ')}</option>`).join('')||'<option value="">No parents on file yet</option>'}</select></div>
+  <div class="field"><label>Subject *</label><input id="cmSubj" maxlength="80" placeholder="e.g. Fee balance reminder" autocomplete="off"></div>
+  <div class="field"><label>Message *</label><textarea id="cmText" rows="5" maxlength="1000" placeholder="Type your message…"></textarea></div>
+ </div>
+ <div class="modal-actions"><button type="button" class="btn btn-light" data-pd="close">Cancel</button><button type="button" class="btn btn-primary" id="cmSend">Send</button></div>`;
+ $('pdBackdrop').classList.remove('hidden');
+ const to=$('cmTo');to.onchange=()=>$('cmParentWrap').classList.toggle('hidden',to.value!=='parent');
+ $('cmSend').onclick=async()=>{
+  const v=to.value,subj=cleanTxt($('cmSubj').value),text=String($('cmText').value||'').replace(/[<>]/g,'').trim();
+  let tok=[],label='';
+  if(v==='admin'){tok=['role:admin'];label='Administrator';}
+  else if(v==='accountant'){tok=['role:accountant'];label='Accountant';}
+  else if(v==='teachers'){tok=['role:teacher'];label='All teachers';}
+  else if(v==='parents'){tok=['role:parent'];label='All parents';}
+  else{const ph=$('cmParent').value,g=gs.find(x=>x.phone===ph);if(!g){toast('Choose the parent.');return}tok=['phone:'+ph];label=g.names[0]||fmtPhone(ph);}
+  if(subj.length<2){toast('Enter the subject.');$('cmSubj').focus();return}
+  if(text.length<2){toast('Write the message.');$('cmText').focus();return}
+  $('cmSend').disabled=true;ensureSent();
+  const x={id:'m'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),to:tok,toLabel:label,title:subj,text,date:new Date().toISOString(),status:'Sending'};
+  SENT.push(x);saveSent();
+  const st=await deliverMsg(x);closePd();
+  if(activePage()==='communication'){commTab='sent';commUi('communication');}
+  toast(st==='Delivered'?'Message delivered to '+label+'.':'Message not delivered. Open Sent and tap Try again.');
+ };
+}
+document.addEventListener('click',async e=>{
+ const b=e.target.closest('[data-cm]');if(!b||!currentUser||(currentUser.role!=='admin'&&currentUser.role!=='accountant'))return;
+ const a=b.dataset.cm;
+ if(a==='new'){openMessageForm();return}
+ if(a==='refresh'){_inboxAt=0;await refreshInbox();if(activePage()==='communication')commUi('communication');return}
+ if(a==='retry'){const x=SENT.find(s=>s.id===b.dataset.id);if(!x)return;b.disabled=true;const st=await deliverMsg(x);toast(st==='Delivered'?'Message delivered.':'Still not delivered. Check your internet.');return}
+ commTab=a;commUi('communication');
+});
+
+/* ----- Expenses: Add New records a real expense ----- */
+const EXP_CATS=['Academic','Utilities','Transport','Salaries','Maintenance','Food & catering','Stationery','Medical','Events','Other'];
+function openExpenseForm(){
+ if(!currentUser||(currentUser.role!=='admin'&&currentUser.role!=='accountant'))return;
+ const d=new Date(),today=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+ $('pdModal').innerHTML=`<div class="modal-head"><div><h3>Add expense</h3><p>Record money the school has spent.</p></div><button type="button" class="modal-close" data-pd="close">×</button></div>
+ <div class="form-fields">
+  <div class="field"><label>Date *</label><input id="exDate" type="date" value="${today}" max="${today}"></div>
+  <div class="field"><label>Description *</label><input id="exDesc" maxlength="80" placeholder="e.g. Water bill for November" autocomplete="off"></div>
+  <div class="field"><label>Category *</label><select id="exCat">${EXP_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+  <div class="field hidden" id="exOtherWrap"><label>Other category *</label><input id="exOther" maxlength="30" placeholder="e.g. Insurance" autocomplete="off"></div>
+  <div class="field"><label>Amount (KSh) *</label><input id="exAmt" type="number" inputmode="numeric" min="1" max="100000000" placeholder="e.g. 12500"></div>
+  <div class="field"><label>Status</label><select id="exStat"><option>Approved</option><option>Pending</option></select></div>
+ </div>
+ <div class="modal-actions"><button type="button" class="btn btn-light" data-pd="close">Cancel</button><button type="button" class="btn btn-primary" id="exSave">Save</button></div>`;
+ $('pdBackdrop').classList.remove('hidden');
+ $('exCat').onchange=()=>$('exOtherWrap').classList.toggle('hidden',$('exCat').value!=='Other');
+ $('exSave').onclick=()=>{
+  const dv=String($('exDate').value||''),dt=dv?new Date(dv+'T12:00:00'):null,desc=cleanTxt($('exDesc').value),cat=$('exCat').value==='Other'?cleanTxt($('exOther').value):$('exCat').value,raw=String($('exAmt').value).trim(),amt=Math.round(Number(raw));
+  if(!dt||isNaN(dt)||dt>new Date()){toast('Choose the date (not in the future).');return}
+  if(desc.length<2){toast('Enter the description.');$('exDesc').focus();return}
+  if(cat.length<2){toast('Enter the category.');$('exOther').focus();return}
+  if(!raw||!isFinite(amt)||amt<1||amt>100000000){toast('Enter an amount of 1 or more.');$('exAmt').focus();return}
+  IMPORTS.expenses=[[fmtDate(dv),desc,cat,money(amt),$('exStat').value],...IMPORTS.expenses];
+  applyImports();saveImportsRemote();closePd();rerenderPage();toast('Expense of '+money(amt)+' recorded.');
+ };
+}
+
 restoreSession();
 
 

@@ -305,6 +305,11 @@ async function loadMessages(r) {
   parts.forEach(p => p.docs.forEach(d => { byId[d.id] = d.data(); }));
   return Object.values(byId).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-200);
 }
+async function loadSentMessages(r) {
+  const col = collection(db, "schools", r.schoolId, "messages");
+  const s = await getDocs(query(col, where("from", "==", r.user.uid)));
+  return s.docs.map(d => d.data()).sort((a, b) => String(a.date).localeCompare(String(b.date))).slice(-200);
+}
 async function sendMessage(schoolId, docId, m) {
   const user = auth.currentUser;
   if (!user || !schoolId) throw new Error("Your school session has expired. Sign in again.");
@@ -376,7 +381,7 @@ async function resetPassword(email) {
   catch (e) { if (e.code === "auth/network-request-failed" || e.code === "auth/too-many-requests") throw e; }
 }
 
-const api = { resetPassword, signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, stillActive, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
+const api = { resetPassword, signIn, restore, changePassword, loadPromotions, savePromotions, loadMessages, loadSentMessages, sendMessage, loadPayNotes, savePayNote, loadPayments, savePayment, reversePayment, loadResults, saveResults, loadMeta, saveMeta, loadAttendance, saveAttendance, createUserAccount, setUserDisabled, stillActive, linkChildren, listSchoolUsers, loadStudents, saveStudents, loadSchoolStudents, createSchoolStudent, signOut: () => signOut(auth) };
 
 // Everything read from the database is cleaned of markup characters before any screen can use it,
 // so text typed by one user (a name, a message, a payment reference) can never run as code for another.
