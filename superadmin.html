@@ -36,7 +36,7 @@
     <button class="nav active" data-page="overview"><i class="nico t-blue"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dash"/></svg></i><span>Dashboard</span></button>
     <button class="nav" data-page="profile"><i class="nico t-teal"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-user"/></svg></i><span>My Profile</span></button>
     <button class="nav" data-page="schools"><i class="nico t-cyan"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-school"/></svg></i><span>Schools</span></button>
-    <button class="nav" data-page="subscriptions"><i class="nico t-purple"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plans"/></svg></i><span>Plans</span></button>
+    <button class="nav" data-page="subscriptions"><i class="nico t-purple"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plans"/></svg></i><span>Subscriptions</span></button>
     <button class="nav" data-page="subscriptions"><i class="nico t-green"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pay"/></svg></i><span>Payments</span></button>
     <button class="nav" data-page="reports"><i class="nico t-orange"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-report"/></svg></i><span>Reports</span></button>
     <button class="nav" data-page="backup"><i class="nico t-amber"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-backup"/></svg></i><span>Backup Data</span></button>
@@ -111,9 +111,9 @@
 
     <section class="page hidden" id="page-subscriptions">
       <button type="button" class="back-btn" data-goto="overview"><i>‹</i><span>Back to Dashboard</span></button>
-      <div class="page-intro"><div><h2>Subscriptions & Billing</h2><p>Pick Starter, Professional or Enterprise, set the amount and expiry date, or pause a school's access.</p></div></div>
-      <div class="panel"><div class="panel-head"><div><h3>School subscriptions</h3><p>Pausing a subscription updates its Firestore school record.</p></div></div><div id="subscriptionList" class="subscription-list"></div></div>
-      <div class="notice"><b>Important:</b> Subscription status is stored in Firestore. Enforcing school access based on subscription status must be implemented in trusted backend logic and school-app security rules.</div>
+      <div class="page-intro"><div><h2>School Subscriptions</h2><p>When a school pays you, click ACTIVATE and choose 1, 3, 6 or 12 months (or a custom expiry date). Click DEACTIVATE to block a school at any time.</p></div></div>
+      <div class="panel"><div class="panel-head"><div><h3>Schools</h3><p>A school becomes INACTIVE automatically when its expiry date passes. Nothing is ever deleted: all school records stay safe until you activate it again.</p></div></div><div id="subscriptionList" class="subscription-list"></div></div>
+      <div class="notice"><b>How access is enforced:</b> the expiry date is saved in the School System database and checked by its Firestore security rules using Google's server clock. A school cannot activate itself, change its expiry date, or get around this by changing its device date. This is separate from student fee payments.</div>
     </section>
 
     <section class="page hidden" id="page-profile">
