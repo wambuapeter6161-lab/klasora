@@ -667,3 +667,10 @@ html.klasora-win .rp-col{flex:1 1 0;min-width:360px}
 .as-count{background:#e8f0ff;color:#1d4ed8;font-weight:800;font-size:11px;padding:5px 10px;border-radius:999px;white-space:nowrap}
 .as-class .table-wrap{overflow-x:auto}
 .as-table{min-width:760px}
+
+/* Inventory type picker */
+.inv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:6px 0 14px}
+.inv-card{display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 6px;border:1px solid #c5d6f2;border-radius:16px;background:#fff;cursor:pointer;font-family:'DM Sans',sans-serif;box-shadow:0 6px 14px #1a3a7014}
+.inv-card span{font-size:26px}
+.inv-card strong{font:800 12.5px Manrope,sans-serif;color:#0f2a63}
+.inv-card:active{transform:scale(.97)}

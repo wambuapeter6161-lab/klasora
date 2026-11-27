@@ -467,6 +467,8 @@ function openQuickAdd(){
  if(page==='classes'){openTeacherForm('','');return}
  if(page==='teachers'){openStaffChooser();return}
  if(page==='communication'){openAnnouncementForm();return}
+ if(currentUser.role==='admin'&&page==='inventory'){openInventoryChooser();return}
+ if(currentUser.role==='admin'&&page==='parents'){openParentForm();return}
  if(currentUser.role==='admin'&&(page==='students'||page==='dashboard')){openStudentForm();return}
  $('modalTitle').textContent='Add '+(ADD_LABELS[page]||'Record');
  $('formFields').innerHTML=[['Name / Title','text'],['Reference Number','text'],['Class / Category','text'],['Additional Details','text']].map(f=>`<div class="field"><label>${f[0]}</label><input type="${f[1]}" placeholder="Enter ${f[0].toLowerCase()}"></div>`).join('');
@@ -499,9 +501,8 @@ function renderAccountantManager(){
  const box=$('accountantPanel');if(!box)return;
  const list=USERS.filter(u=>u.role==='accountant'||u.role==='teacher'||u.role==='parent');
  const clsOpts=classKeys().map(c=>`<option>${escH(c)}</option>`).join('');
- const gOpts=guardians().filter(g=>!accountFor(g.phone)).map(g=>`<option value="${escH(g.phone)}">${escH(g.names.join(' / '))} · ${escH(fmtPhone(g.phone))} · ${g.kids.map(k=>escH(k.name.split(' ')[0])).join(', ')}</option>`).join('');
  const roleTxt=u=>u.role==='teacher'?'Teacher'+(u.className?', '+escH(u.className):''):u.role==='parent'?'Parent'+((u.children||[]).length?', '+u.children.length+' learner'+(u.children.length===1?'':'s'):''):'Accountant';
- box.innerHTML=`<div class="panel-heading"><div><h3>Staff &amp; Parent Accounts</h3><p>Create sign-in accounts for teachers, accountants and parents. Everyone must replace the temporary password on first login.</p></div></div><div class="form-fields"><div class="field"><label>Account type</label><select id="newAccRole"><option value="accountant">Accountant</option><option value="teacher">Teacher</option><option value="parent">Parent / Guardian</option></select></div><div class="field hidden" id="newAccClassWrap"><label>Class taught</label><select id="newAccClass">${clsOpts}</select></div><div class="field hidden" id="newAccParentWrap"><label>Parent / guardian (from learner records)</label><select id="newAccParent">${gOpts||'<option value="">No guardian without an account</option>'}</select></div><div class="field"><label>Full name</label><input id="newAccName" placeholder="e.g. Mary Wanjiku"></div><div class="field"><label>Email</label><input id="newAccEmail" type="email" placeholder="name@example.com"></div><div class="field"><label>Temporary password</label><input id="newAccTemp" type="text" placeholder="At least 8 characters"></div></div><div class="modal-actions"><button type="button" class="btn btn-primary" id="createAccountant">＋ Create Account</button></div><div class="streams-box"><h4>Accounts in this school</h4>${list.length?list.map(u=>`<div class="access-row"><span>${escH(u.name)}<small style="display:block;color:#8290a4">${escH(u.email||u.username)} · ${roleTxt(u)}</small></span><span>${u.disabled?'Deactivated':(u.mustChange?'Temporary password':'Active')} <button type="button" class="reg-btn" data-acc="${escH(u.uid)}">${u.disabled?'Activate':'Deactivate'}</button></span></div>`).join(''):'<p class="su-hint">No accounts have been created yet.</p>'}</div>`;
+ box.innerHTML=`<div class="panel-heading"><div><h3>Staff &amp; Parent Accounts</h3><p>Create sign-in accounts for teachers and accountants. To add a parent, open Parents &amp; Guardians and tap Add New. Everyone must replace the temporary password on first login.</p></div></div><div class="form-fields"><div class="field"><label>Account type</label><select id="newAccRole"><option value="accountant">Accountant</option><option value="teacher">Teacher</option></select></div><div class="field hidden" id="newAccClassWrap"><label>Class taught</label><select id="newAccClass">${clsOpts}</select></div><div class="field"><label>Full name</label><input id="newAccName" placeholder="e.g. Mary Wanjiku"></div><div class="field"><label>Email</label><input id="newAccEmail" type="email" placeholder="name@example.com"></div><div class="field"><label>Temporary password</label><input id="newAccTemp" type="text" placeholder="At least 8 characters"></div></div><div class="modal-actions"><button type="button" class="btn btn-primary" id="createAccountant">＋ Create Account</button></div><div class="streams-box"><h4>Accounts in this school</h4>${list.length?list.map(u=>`<div class="access-row"><span>${escH(u.name)}<small style="display:block;color:#8290a4">${escH(u.email||u.username)} · ${roleTxt(u)}</small></span><span>${u.disabled?'Deactivated':(u.mustChange?'Temporary password':'Active')} <button type="button" class="reg-btn" data-acc="${escH(u.uid)}">${u.disabled?'Activate':'Deactivate'}</button></span></div>`).join(''):'<p class="su-hint">No accounts have been created yet.</p>'}</div>`;
  box.querySelectorAll('[data-acc]').forEach(b=>b.onclick=async()=>{
   const u=USERS.find(x=>x.uid===b.dataset.acc);if(!u)return;const off=!u.disabled;
   if(off&&!confirm('Deactivate '+u.name+'? They will not be able to sign in until you activate the account again.'))return;
@@ -510,16 +511,11 @@ function renderAccountantManager(){
   catch(e){toast('Could not change the account. Check your internet and try again.');b.disabled=false;}
  });
  const roleSel=$('newAccRole');
- roleSel.onchange=()=>{$('newAccClassWrap').classList.toggle('hidden',roleSel.value!=='teacher');$('newAccParentWrap').classList.toggle('hidden',roleSel.value!=='parent');};
+ roleSel.onchange=()=>{$('newAccClassWrap').classList.toggle('hidden',roleSel.value!=='teacher');};
  $('createAccountant').onclick=async()=>{
   const role=roleSel.value,email=$('newAccEmail').value.trim().toLowerCase(),temp=$('newAccTemp').value;
   let name=$('newAccName').value.trim().replace(/[<>]/g,''),cls='',phone='',kids=[];
   if(role==='teacher')cls=$('newAccClass').value;
-  if(role==='parent'){
-   phone=$('newAccParent').value;const g=guardians().find(x=>x.phone===phone);
-   if(!g){toast('Add the learner first, then create the parent account.');return}
-   kids=g.kids.map(k=>stuDocId(k.adm));if(!name)name=g.names[0]||'Parent';
-  }
   if(!/^\S+@\S+\.\S+$/.test(email)||temp.length<8){toast('Enter a valid email and a temporary password of at least 8 characters.');return}
   if(role!=='parent'&&wordCount(name)<2){toast('Enter the full name (first and last name).');return}
   if(role==='teacher'&&!cls){toast('Choose the class this teacher teaches.');return}
@@ -2067,7 +2063,7 @@ function openMemberDetail(m){
   body:sec('DETAILS',[['Class',escH(tm.cls)],['Role',p.role],['Number in list',String(m.i+1)]])+sec('SUBJECTS',p.subjects.length?p.subjects.map((x,i)=>[String(i+1),escH(x)]):[['None added yet','']]),go:null,goLabel:'Back to list'});
 }
 function rerenderPage(){
- if(!currentUser)return;const pg=activePage();if(!['classes','teachers','communication'].includes(pg))return;
+ if(!currentUser)return;const pg=activePage();if(!['classes','teachers','communication','inventory','parents'].includes(pg))return;
  if(pg==='classes')refreshClassRows();if(pg==='communication')refreshAnnRows();
  const m=getModule(pg),q=$('moduleSearch').value.toLowerCase();
  renderModuleStats(pg,m);renderTable(q?m.rows.filter(r=>r.join(' ').toLowerCase().includes(q)):m.rows,false);
@@ -2248,6 +2244,87 @@ document.addEventListener('click',e=>{
  stArm='';const n=STAFF.length;STAFF=STAFF.filter(x=>x.id!==id);
  const ok=n!==STAFF.length?saveStaff():true;closeDetail();rerenderPage();toast(n===STAFF.length?'Nothing to remove.':ok?'Staff member removed.':'Removed for this session only.');
 });
+
+/* ----- Inventory & Assets: Add New shows the types first ----- */
+const INV_TYPES={asset:[['Furniture','🪑'],['ICT','💻'],['Laboratory','🔬'],['Sports','🏀'],['Kitchen','🍳'],['Other','📦']],stock:[['Stationery','✏️'],['Cleaning','🧹'],['Health','🩺'],['Maintenance','🔧'],['Other','📦']]};
+let invKind='',invCat='';
+function nextInvCode(kind){
+ const rows=modules.inventory.rows,used=new Set(rows.map(r=>String(r[1]).toLowerCase()));
+ let n=rows.reduce((m,r)=>{const x=String(r[1]).match(/^(?:AST|STK)-(\d+)$/i);return x?Math.max(m,+x[1]):m;},0),code;
+ do{n++;code=(kind==='stock'?'STK-':'AST-')+String(n).padStart(3,'0');}while(used.has(code.toLowerCase()));
+ return code;
+}
+function openInventoryChooser(){
+ if(!currentUser||currentUser.role!=='admin')return;
+ const grid=k=>INV_TYPES[k].map(t=>`<button type="button" class="inv-card" data-inv="${k}|${escH(t[0])}"><span>${t[1]}</span><strong>${t[0]==='Other'?'Other':escH(t[0])}</strong></button>`).join('');
+ $('pdModal').innerHTML=`<div class="modal-head"><div><h3>Add inventory or asset</h3><p>Choose the type you are adding.</p></div><button type="button" class="modal-close" data-pd="close">×</button></div>
+ <div class="detail-section">ASSETS (items that last)</div><div class="inv-grid">${grid('asset')}</div>
+ <div class="detail-section">STOCK AND SUPPLIES (items that get used up)</div><div class="inv-grid">${grid('stock')}</div>`;
+ $('pdBackdrop').classList.remove('hidden');
+}
+function openInventoryForm(kind,cat){
+ if(!currentUser||currentUser.role!=='admin')return;
+ invKind=kind;invCat=cat;const stock=kind==='stock',other=cat==='Other';
+ $('pdModal').innerHTML=`<div class="modal-head"><div><h3>Add ${other?(stock?'supply':'asset'):escH(cat)+(stock?' stock':' asset')}</h3><p>${stock?'Supplies and stock':'School assets'}</p></div><button type="button" class="modal-close" data-pd="close">×</button></div>
+ <div class="form-fields">
+  ${other?'<div class="field"><label>Category *</label><input id="ivCat" maxlength="30" placeholder="e.g. Uniforms" autocomplete="off"></div>':''}
+  <div class="field"><label>Item name *</label><input id="ivName" maxlength="60" placeholder="${stock?'e.g. Exercise books':'e.g. Student desks'}" autocomplete="off"></div>
+  <div class="field"><label>Quantity *</label><input id="ivQty" type="number" inputmode="numeric" min="0" max="1000000" placeholder="e.g. 25"></div>
+  <div class="field"><label>${stock?'Stock level':'Condition'}</label><select id="ivCond">${stock?'<option value="Good">In stock</option><option value="Low Stock">Low stock</option>':'<option>Good</option><option>Fair</option><option>Poor</option>'}</select></div>
+  <div class="field"><label>Code <small>(automatic)</small></label><input value="${nextInvCode(kind)}" readonly></div>
+ </div>
+ <div class="modal-actions"><button type="button" class="btn btn-light" data-inv="back">Back</button><button type="button" class="btn btn-primary" data-inv="save">Save</button></div>`;
+ $('pdBackdrop').classList.remove('hidden');
+}
+$('pdModal').addEventListener('click',e=>{
+ const b=e.target.closest('[data-inv]');if(!b)return;
+ if(!currentUser||currentUser.role!=='admin'){closePd();toast('Permission denied.');return}
+ const a=b.dataset.inv;
+ if(a==='back'){openInventoryChooser();return}
+ if(a!=='save'){const p=a.split('|');openInventoryForm(p[0],p.slice(1).join('|'));return}
+ const cat=invCat==='Other'?cleanTxt($('ivCat').value):invCat,name=cleanTxt($('ivName').value),raw=String($('ivQty').value).trim(),qty=Number(raw);
+ if(invCat==='Other'&&cat.length<2){toast('Enter the category.');$('ivCat').focus();return}
+ if(name.length<2){toast('Enter the item name.');$('ivName').focus();return}
+ if(!raw||!Number.isInteger(qty)||qty<0||qty>1000000){toast('Enter a quantity of 0 or more.');$('ivQty').focus();return}
+ const row=[name,nextInvCode(invKind),cat,String(qty),$('ivCond').value];
+ IMPORTS.inventory=[row,...IMPORTS.inventory];applyImports();saveImportsRemote();
+ closePd();rerenderPage();toast(name+' added to inventory.');
+});
+
+/* ----- Parents & Guardians: Add New creates the parent's sign-in account ----- */
+function openParentForm(){
+ if(!currentUser||currentUser.role!=='admin')return;
+ const open=guardians().filter(g=>!accountFor(g.phone));
+ const opts=open.map(g=>`<option value="${escH(g.phone)}">${escH(g.names.join(' / '))} · ${escH(fmtPhone(g.phone))} · ${g.kids.map(k=>escH(k.name.split(' ')[0])).join(', ')}</option>`).join('');
+ $('pdModal').innerHTML=`<div class="modal-head"><div><h3>Add new parent</h3><p>Create the parent’s sign-in account.</p></div><button type="button" class="modal-close" data-pd="close">×</button></div>`+(open.length?`
+ <div class="form-fields">
+  <div class="field"><label>Parent / guardian (from learner records) *</label><select id="npParent">${opts}</select></div>
+  <div class="field"><label>Full name <small>(optional, uses the name on the learner record)</small></label><input id="npName" maxlength="60" placeholder="e.g. Mary Wanjiku" autocomplete="off"></div>
+  <div class="field"><label>Email *</label><input id="npEmail" type="email" placeholder="name@example.com" autocomplete="off"></div>
+  <div class="field"><label>Temporary password *</label><input id="npTemp" type="text" placeholder="At least 8 characters" autocomplete="off"></div>
+ </div>
+ <div class="modal-actions"><button type="button" class="btn btn-light" data-pd="close">Cancel</button><button type="button" class="btn btn-primary" id="npSave">＋ Create Parent</button></div>`
+ :`<div class="bk-note">Every parent on file already has a portal account. To add a new parent, register their child first from Students, then come back here.</div><div class="modal-actions"><button type="button" class="btn btn-light" data-pd="close">Close</button></div>`);
+ $('pdBackdrop').classList.remove('hidden');
+ const sv=$('npSave');if(!sv)return;
+ sv.onclick=async()=>{
+  const phone=$('npParent').value,g=guardians().find(x=>x.phone===phone),email=$('npEmail').value.trim().toLowerCase(),temp=$('npTemp').value;
+  if(!g){toast('Add the learner first, then create the parent account.');return}
+  if(!/^\S+@\S+\.\S+$/.test(email)||temp.length<8){toast('Enter a valid email and a temporary password of at least 8 characters.');return}
+  if(USERS.some(u=>String(u.email||'').toLowerCase()===email)){toast('An account already uses that email.');return}
+  const name=$('npName').value.trim().replace(/[<>]/g,'')||g.names[0]||'Parent';
+  sv.disabled=true;
+  try{
+   const profile={role:'parent',name,email,classes:[],children:g.kids.map(k=>stuDocId(k.adm)),linkPhone:phone};
+   const uid=await KlasoraFirebase.createUserAccount(currentUser.schoolId,{...profile,password:temp});
+   USERS.push(fbUserToLocal({uid,...profile,mustChangePassword:true},currentUser.schoolId));
+   saveClassTeacherDir();refreshUsersModule();closePd();rerenderPage();toast('Parent account created. Share the temporary password securely.');
+  }catch(err){
+   toast(err.code==='auth/email-already-in-use'?'That email already has an account.':err.code==='permission-denied'?'You do not have permission to create accounts.':err.code==='auth/weak-password'?'Choose a stronger temporary password.':'Could not create the account. Check your internet and try again.');
+   sv.disabled=false;
+  }
+ };
+}
 
 /* ----- Announcements ----- */
 const SAMPLE_ANN=[];
