@@ -14,8 +14,18 @@ service cloud.firestore {
     function hasProfile() {
       return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
+    // SUBSCRIPTION ENFORCEMENT (server side).
+    // A school is allowed in only while BOTH are true:
+    //   1) its status is 'Active', and
+    //   2) subscriptionExpiresAt (a Timestamp only the Super Admin can write) is later than request.time.
+    // request.time is Google's server clock, so changing the date on a phone/computer or editing the
+    // app's JavaScript cannot extend or bypass a subscription. When it expires, every school role is
+    // refused automatically - no data is deleted, and the Super Admin (who never depends on this) keeps access.
     function schoolActive(sid) {
-      return get(/databases/$(database)/documents/schools/$(sid)).data.status == 'Active';
+      let s = get(/databases/$(database)/documents/schools/$(sid)).data;
+      return s.status == 'Active'
+        && s.get('subscriptionExpiresAt', null) is timestamp
+        && s.subscriptionExpiresAt > request.time;
     }
     function isRole(sid, r) {
       return hasProfile() && profile().schoolId == sid && profile().role == r && schoolActive(sid);
@@ -97,6 +107,9 @@ service cloud.firestore {
       }
 
       match /meta/{docId} {
+        // 'ping' is an empty marker document. Any signed-in member of an ACTIVE school may read it, so the app
+        // can ask the server "is my school's subscription still valid?" without relying on the device clock.
+        allow get: if docId == 'ping' && isMember(schoolId);
         allow read: if isAdmin(schoolId) || isTeacher(schoolId) || isAccountant(schoolId)
           || (docId == 'feestr' && isParent(schoolId));
         // CHANGED: the accountant may also save 'imports' (expenses and fees records).

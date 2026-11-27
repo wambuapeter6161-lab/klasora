@@ -20,7 +20,30 @@ try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabMana
 catch (e) { db = getFirestore(app); }
 const norm = v => String(v || "").trim().toUpperCase();
 
-// Loads the signed-in user's profile (role, school) and checks the school is active.
+// ---- Subscription checks ----
+// The real enforcement lives in firestore.rules (it uses the SERVER clock). The checks below only decide
+// which message to show, and they ask the server itself rather than trusting the device's date.
+const MSG_EXPIRED = "Your school's Klasora subscription has expired. Please contact the Klasora administrator for renewal.";
+const MSG_INACTIVE = "This school's Klasora subscription is not active. Please contact the Klasora administrator.";
+let lastInactiveMessage = "";
+const tsMs = v => (v && typeof v.toMillis === "function") ? v.toMillis() : null;
+
+// Reads schools/{id}/meta/ping. The rules allow it only for members of a school whose subscription is valid.
+async function serverAllowsSchool(schoolId) {
+  try { await getDoc(doc(db, "schools", schoolId, "meta", "ping")); return true; }
+  catch (e) { return !(e && e.code === "permission-denied"); }   // network trouble must not lock anybody out
+}
+
+// Returns "" when the school may use Klasora, otherwise the message to show.
+async function subscriptionProblem(schoolId, school) {
+  const exp = tsMs(school.subscriptionExpiresAt);
+  const expired = exp !== null && exp <= Date.now();
+  if (String(school.status || "").toLowerCase() !== "active") return expired ? MSG_EXPIRED : MSG_INACTIVE;
+  if (await serverAllowsSchool(schoolId)) return "";
+  return expired ? MSG_EXPIRED : MSG_INACTIVE;
+}
+
+// Loads the signed-in user's profile (role, school) and checks the school's subscription is active.
 async function loadProfile(user) {
   const p = await getDoc(doc(db, "users", user.uid));
   if (!p.exists()) throw new Error("This account is not linked to a school. Contact your school administrator.");
@@ -29,7 +52,8 @@ async function loadProfile(user) {
   const s = await getDoc(doc(db, "schools", profile.schoolId));
   if (!s.exists()) throw new Error("School record not found. Contact Klasora support.");
   const school = s.data();
-  if (String(school.status || "").toLowerCase() !== "active") throw new Error("This school account is not active. Please contact Klasora support.");
+  const problem = await subscriptionProblem(profile.schoolId, school);
+  if (problem) { lastInactiveMessage = problem; throw new Error(problem); }
   return { user, profile, school, schoolId: profile.schoolId };
 }
 
@@ -155,15 +179,18 @@ async function linkChildren(uid, ids) {
   await updateDoc(doc(db, "users", uid), { children: arrayUnion(...ids) });
 }
 
-// True while this account and its school are still active (used to end sessions after a suspension).
+// True while this account and its school's subscription are still active (used to end sessions after an expiry or suspension).
 async function stillActive(schoolId) {
   const user = auth.currentUser;
   if (!user) return false;
   try {
     const p = await getDoc(doc(db, "users", user.uid));
-    if (!p.exists() || p.data().disabled === true) return false;
+    if (!p.exists() || p.data().disabled === true) { lastInactiveMessage = "Your account is no longer active. Please contact your school administrator."; return false; }
     const s = await getDoc(doc(db, "schools", schoolId));
-    return s.exists() && String(s.data().status || "").toLowerCase() === "active";
+    if (!s.exists()) { lastInactiveMessage = MSG_INACTIVE; return false; }
+    const problem = await subscriptionProblem(schoolId, s.data());
+    if (problem) { lastInactiveMessage = problem; return false; }
+    return true;
   } catch (e) { return true; }   // a network error must not sign anybody out
 }
 
@@ -399,4 +426,6 @@ const clean = v => {
   const fn = api[k];
   api[k] = async (...a) => clean(await fn(...a));
 });
+// The message to show after stillActive() returns false (expired / inactive subscription).
+Object.defineProperty(api, "inactiveMessage", { get: () => lastInactiveMessage, enumerable: false });
 window.KlasoraFirebase = api;

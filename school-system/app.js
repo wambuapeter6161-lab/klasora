@@ -2888,7 +2888,7 @@ async function refreshInbox(){
   if(['admin','accountant','parent'].includes(currentUser.role)){const pn=await KlasoraFirebase.loadPayNotes(r);PAYNOTES=pn;pn.forEach(n=>{PN_SNAP[n.id]=JSON.stringify(n)});}
   updateBell();
  }catch(e){
-  if(e&&e.code==='permission-denied'){const ok=await KlasoraFirebase.stillActive(currentUser.schoolId);if(!ok)signOut('Your account or school is no longer active. Please contact your school administrator or Klasora support.');}
+  if(e&&e.code==='permission-denied'){const ok=await KlasoraFirebase.stillActive(currentUser.schoolId);if(!ok)signOut(KlasoraFirebase.inactiveMessage||'Your account or school is no longer active. Please contact your school administrator or Klasora support.');}
  }
 }
 setInterval(refreshInbox,180000);
@@ -3052,7 +3052,7 @@ async function refreshLiveData(page,force){
  if(!scopes.length)return;
  _liveBusy=true;const before=liveSig(),r=curR();
  try{
-  for(const k of scopes){try{await LIVE[k](r);LIVE_AT[k]=Date.now();}catch(e){if(e&&e.code==='permission-denied'){const ok=await KlasoraFirebase.stillActive(currentUser.schoolId);if(!ok){signOut('Your account or school is no longer active. Please contact your school administrator or Klasora support.');return;}}}}
+  for(const k of scopes){try{await LIVE[k](r);LIVE_AT[k]=Date.now();}catch(e){if(e&&e.code==='permission-denied'){const ok=await KlasoraFirebase.stillActive(currentUser.schoolId);if(!ok){signOut(KlasoraFirebase.inactiveMessage||'Your account or school is no longer active. Please contact your school administrator or Klasora support.');return;}}}}
   if(currentUser&&liveSig()!==before){const pg=activePage();try{if(pg==='register'&&typeof regRerender==='function')regRerender();else _showPageBeforeLive(pg);}catch(e){}}
  }finally{_liveBusy=false;}
 }
