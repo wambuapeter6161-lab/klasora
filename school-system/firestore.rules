@@ -2,66 +2,201 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function signedIn() { return request.auth != null; }
+
     function isSuperAdmin() {
-      return request.auth != null
-        && request.auth.uid == 'NiquOT8pm7hha8mM6nlsuYvN0tr1';
+      return signedIn() && request.auth.uid == 'PfUW9NmNApMam9e5COf6K9RDv8e2';
     }
 
-    function isSchoolAdmin(schoolId) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/schools/$(schoolId))
-        && get(/databases/$(database)/documents/schools/$(schoolId)).data.adminUid == request.auth.uid;
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
+    function hasProfile() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function schoolActive(sid) {
+      return get(/databases/$(database)/documents/schools/$(sid)).data.status == 'Active';
+    }
+    function isRole(sid, r) {
+      return hasProfile() && profile().schoolId == sid && profile().role == r && schoolActive(sid);
+    }
+    function isAdmin(sid)      { return isRole(sid, 'admin'); }
+    function isTeacher(sid)    { return isRole(sid, 'teacher'); }
+    function isAccountant(sid) { return isRole(sid, 'accountant'); }
+    function isParent(sid)     { return isRole(sid, 'parent'); }
+
+    function isMember(sid) { return hasProfile() && profile().schoolId == sid && schoolActive(sid); }
+
+    function teachesClass(cls) { return cls in profile().classes; }
+    function isMyChild(studentId) { return studentId in profile().children; }
 
     match /schools/{schoolId} {
       allow read: if isSuperAdmin()
-        || (request.auth != null && resource.data.adminUid == request.auth.uid);
+        || (hasProfile() && profile().schoolId == schoolId);
+      allow create, update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
 
-      allow create: if isSuperAdmin();
+      // Super Admin: read and delete everything inside a school (used by "Delete school")
+      match /{allSub=**} {
+        allow read, delete: if isSuperAdmin();
+      }
 
-      allow update: if isSuperAdmin()
-        || (
-          isSchoolAdmin(schoolId)
-          && request.resource.data.adminUid == resource.data.adminUid
-          && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['mustChangePassword', 'activated', 'lastLoginAt'])
-          && request.resource.data.mustChangePassword == false
-          && request.resource.data.activated == true
-        );
-
-      allow delete: if false;
+      match /classes/{id} {
+        allow read: if isSuperAdmin() || isAdmin(schoolId) || isTeacher(schoolId) || isAccountant(schoolId);
+        allow write: if isAdmin(schoolId);
+      }
+      match /subjects/{id} {
+        allow read: if isSuperAdmin() || isAdmin(schoolId) || isTeacher(schoolId);
+        allow write: if isAdmin(schoolId);
+      }
+      match /timetables/{id} {
+        allow read: if isAdmin(schoolId) || isTeacher(schoolId);
+        allow write: if isAdmin(schoolId);
+      }
 
       match /students/{studentId} {
-        allow read, write: if isSuperAdmin() || isSchoolAdmin(schoolId);
+        allow read: if isAdmin(schoolId)
+          || isAccountant(schoolId)
+          || (isTeacher(schoolId) && teachesClass(resource.data.cls))
+          || (isParent(schoolId) && isMyChild(studentId));
+        allow create, delete: if isAdmin(schoolId);
+        allow update: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(resource.data.cls)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cls', 'status']));
+      }
+
+      match /promotions/{id} {
+        allow read: if isAdmin(schoolId) || isAccountant(schoolId)
+          || (isTeacher(schoolId) && (teachesClass(resource.data.cls) || teachesClass(resource.data.to)))
+          || (isParent(schoolId) && isMyChild(resource.data.studentId));
+        allow create, update: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(request.resource.data.cls));
+        allow delete: if false;
+      }
+
+      match /attendance/{id} {
+        allow read: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(resource.data.cls))
+          || (isParent(schoolId) && isMyChild(resource.data.studentId));
+        allow create: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(request.resource.data.cls));
+        allow update: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(resource.data.cls) && teachesClass(request.resource.data.cls));
+        allow delete: if isAdmin(schoolId);
+      }
+
+      match /results/{id} {
+        allow read: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(resource.data.cls))
+          || (isParent(schoolId) && isMyChild(resource.data.studentId));
+        allow create: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(request.resource.data.cls));
+        allow update: if isAdmin(schoolId)
+          || (isTeacher(schoolId) && teachesClass(resource.data.cls) && teachesClass(request.resource.data.cls));
+        allow delete: if isAdmin(schoolId);
+      }
+
+      match /meta/{docId} {
+        allow read: if isAdmin(schoolId) || isTeacher(schoolId) || isAccountant(schoolId)
+          || (docId == 'feestr' && isParent(schoolId));
+        // CHANGED: the accountant may also save 'imports' (expenses and fees records).
+        allow write: if isAdmin(schoolId)
+          || (docId == 'stusubj' && isTeacher(schoolId))
+          || (docId == 'feestr' && isAccountant(schoolId))
+          || (docId == 'imports' && isAccountant(schoolId));
+      }
+
+      match /messages/{id} {
+        // CHANGED: a sender can also read the messages they wrote (powers the Sent tab).
+        allow read: if isMember(schoolId) && (
+             ('role:' + profile().role) in resource.data.to
+          || ('uid:' + request.auth.uid) in resource.data.to
+          || (profile().role == 'parent' && ('phone:' + profile().linkPhone) in resource.data.to)
+          || resource.data.from == request.auth.uid);
+        allow create: if isMember(schoolId) && request.resource.data.from == request.auth.uid
+          && (profile().role != 'parent' || request.resource.data.to.hasOnly(['role:accountant', 'role:admin']));
+        allow update: if isMember(schoolId) && resource.data.from == request.auth.uid
+          && request.resource.data.from == request.auth.uid;
+        allow delete: if isAdmin(schoolId);
+      }
+
+      match /paynotes/{id} {
+        allow read: if isAdmin(schoolId) || isAccountant(schoolId)
+          || (isParent(schoolId) && isMyChild(resource.data.studentId));
+        allow create: if isParent(schoolId) && isMyChild(request.resource.data.studentId)
+          && request.resource.data.status == 'pending';
+        allow update: if isAdmin(schoolId) || isAccountant(schoolId);
+        allow delete: if false;
+      }
+
+      match /fees/{id} {
+        allow read: if isAdmin(schoolId) || isAccountant(schoolId)
+          || (isParent(schoolId) && isMyChild(resource.data.studentId));
+        allow write: if isAdmin(schoolId) || isAccountant(schoolId);
+      }
+
+      match /payments/{id} {
+        allow read: if isAdmin(schoolId) || isAccountant(schoolId)
+          || (isParent(schoolId) && isMyChild(resource.data.studentId));
+        allow create, update: if isAdmin(schoolId) || isAccountant(schoolId);
+        allow delete: if false;
       }
     }
 
-    match /schoolCodes/{code} {
+    match /users/{uid} {
       allow read: if isSuperAdmin()
-        || (request.auth != null && resource.data.adminUid == request.auth.uid);
+        || (signedIn() && request.auth.uid == uid)
+        || (hasProfile() && profile().role == 'admin'
+            && profile().schoolId == resource.data.schoolId
+            && schoolActive(resource.data.schoolId));
 
-      allow create: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        || (hasProfile() && profile().role == 'admin'
+            && schoolActive(profile().schoolId)
+            && request.resource.data.schoolId == profile().schoolId
+            && request.resource.data.role in ['teacher', 'accountant', 'parent']);
 
-      allow update, delete: if false;
+      allow update: if isSuperAdmin()
+        || (hasProfile() && profile().role == 'admin'
+            && profile().schoolId == resource.data.schoolId
+            && request.resource.data.schoolId == resource.data.schoolId
+            && request.resource.data.role == resource.data.role
+            && resource.data.role != 'admin')
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'lastLoginAt']));
+
+      allow delete: if isSuperAdmin();
     }
 
-    match /payments/{paymentId} {
-      allow read, create: if isSuperAdmin();
-      allow update, delete: if false;
+    // ---- Super Admin portal data (Firebase B) ----
+    match /saSchools/{schoolId} {
+      allow read, write: if isSuperAdmin();
+      match /students/{studentId} {
+        allow read, write: if isSuperAdmin();
+      }
     }
 
-    match /presence/{uid} {
+    match /saSchoolCodes/{code} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /saPayments/{paymentId} {
       allow read: if isSuperAdmin();
-      allow write: if false;
+      allow create: if isSuperAdmin()
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0;
+      allow update, delete: if false;
     }
 
-    match /superAdminProfile/{uid} {
-      allow read, write: if isSuperAdmin()
-        && request.auth.uid == uid;
+    match /saPresence/{uid} {
+      allow read, write: if isSuperAdmin();
     }
 
-    match /{document=**} {
-      allow read, write: if false;
+    match /saProfile/{uid} {
+      allow read, write: if isSuperAdmin() && request.auth.uid == uid;
     }
+    // ---- end Super Admin portal data ----
+
+    match /{document=**} { allow read, write: if false; }
   }
 }
