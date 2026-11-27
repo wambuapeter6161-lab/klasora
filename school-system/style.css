@@ -674,3 +674,13 @@ html.klasora-win .rp-col{flex:1 1 0;min-width:360px}
 .inv-card span{font-size:26px}
 .inv-card strong{font:800 12.5px Manrope,sans-serif;color:#0f2a63}
 .inv-card:active{transform:scale(.97)}
+
+/* Staff form: subjects dropdown */
+.sub-dd{border:1px solid #c5d6f2;border-radius:14px;background:#fff}
+.sub-dd summary{list-style:none;cursor:pointer;padding:11px 36px 11px 14px;font-size:14px;color:#0f2a63;position:relative}
+.sub-dd summary::-webkit-details-marker{display:none}
+.sub-dd summary::after{content:'▾';position:absolute;right:14px;top:50%;transform:translateY(-50%);transition:transform .15s}
+.sub-dd[open] summary::after{transform:translateY(-50%) rotate(180deg)}
+.sub-list{max-height:220px;overflow-y:auto;border-top:1px solid #e3ecfb;padding:6px 10px}
+.sub-list label{display:flex;align-items:center;gap:8px;padding:7px 2px;font-size:13px}
+.sub-list input{width:auto}

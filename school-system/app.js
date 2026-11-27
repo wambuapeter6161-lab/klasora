@@ -2202,17 +2202,19 @@ function openStaffChooser(){
  <button type="button" class="st-card supp" data-stf="support"><span>🛠️</span><strong>Support staff</strong><small>Cook, cleaner, security and others</small></button></div>`;
  $('pdBackdrop').classList.remove('hidden');
 }
+function stSubjects(){const seen=new Set(),out=[];CLASS_LIST.forEach(g=>subjectsFor(g).forEach(x=>{const k=x.toLowerCase();if(!seen.has(k)){seen.add(k);out.push(x);}}));return out;}
+$('pdModal').addEventListener('change',e=>{if(!e.target.classList||!e.target.classList.contains('sf-sub'))return;const v=[...document.querySelectorAll('#pdModal .sf-sub:checked')].map(x=>x.value),el=$('sfSubSum');if(el)el.textContent=v.length?v.length+' selected: '+v.join(', '):'Select subjects';});
 function openStaffForm(type){
  if(!currentUser||currentUser.role!=='admin')return;
- stType=type;const t=type==='teaching',today=annDate(new Date().toISOString());
+ stType=type;const t=type==='teaching',dn=new Date(),today=dn.getFullYear()+'-'+String(dn.getMonth()+1).padStart(2,'0')+'-'+String(dn.getDate()).padStart(2,'0');
  $('pdModal').innerHTML=`<div class="modal-head"><div><h3>${t?'Add teaching staff':'Add support staff'}</h3><p>${t?'Enter the teacher’s details.':'Enter the staff member’s details.'}</p></div><button type="button" class="modal-close" data-pd="close">×</button></div>
  <div class="form-fields">
   <div class="field"><label>${t?'Teacher name':'Name of staff'} *</label><input id="sfName" maxlength="60" placeholder="e.g. ${t?'Mrs. Grace Wanjiru':'John Mwangi'}" autocomplete="off"></div>
   <div class="field"><label>${t?'Employment ID':'ID No.'} *</label><input id="sfEmp" maxlength="20" placeholder="${t?'e.g. EMP-015':'e.g. 12345678'}" autocomplete="off"></div>
-  <div class="field"><label>${t?'Role (subjects taught)':'Work'} *</label><input id="sfRole" maxlength="${t?80:40}" ${t?'':'list="sfWorkList"'} placeholder="${t?'e.g. Mathematics, English':'e.g. Cook, Cleaner'}" autocomplete="off">${t?'':'<datalist id="sfWorkList"><option>Cook</option><option>Cleaner</option><option>Security</option><option>Driver</option><option>Groundskeeper</option><option>Secretary</option><option>Librarian</option><option>Nurse</option></datalist>'}</div>
+  ${t?`<div class="field"><label>Subjects taught *</label><details class="sub-dd" id="sfSubDd"><summary id="sfSubSum">Select subjects</summary><div class="sub-list">${stSubjects().map(x=>`<label><input type="checkbox" class="sf-sub" value="${escH(x)}"> <span>${escH(x)}</span></label>`).join('')||'<small>No subjects yet. Add them under Subjects first.</small>'}</div></details></div>`:`<div class="field"><label>Work *</label><input id="sfRole" maxlength="40" list="sfWorkList" placeholder="e.g. Cook, Cleaner" autocomplete="off"><datalist id="sfWorkList"><option>Cook</option><option>Cleaner</option><option>Security</option><option>Driver</option><option>Groundskeeper</option><option>Secretary</option><option>Librarian</option><option>Nurse</option></datalist></div>`}
   ${t?'<div class="field"><label>Age *</label><input id="sfAge" type="number" inputmode="numeric" min="18" max="75" placeholder="e.g. 34"></div>':''}
   <div class="field"><label>Telephone number *</label><input id="sfPhone" type="tel" inputmode="tel" maxlength="20" placeholder="e.g. 0712 345 678" autocomplete="off"></div>
-  <div class="field"><label>Date joined <small>(automatic)</small></label><input value="${today}" readonly></div>
+  <div class="field"><label>Date joined *</label><input id="sfJoined" type="date" value="${today}" max="${today}"></div>
  </div>
  <div class="modal-actions"><button type="button" class="btn btn-light" data-stf="back">Back</button><button type="button" class="btn btn-primary" data-stf="save">Save</button></div>`;
  $('pdBackdrop').classList.remove('hidden');
@@ -2224,16 +2226,17 @@ $('pdModal').addEventListener('click',e=>{
  if(a==='teaching'||a==='support'){openStaffForm(a);return}
  if(a==='back'){openStaffChooser();return}
  if(a!=='save')return;
- const t=stType==='teaching',name=stClean($('sfName').value),emp=stClean($('sfEmp').value),role=stClean($('sfRole').value),phone=normPhone($('sfPhone').value);
+ const t=stType==='teaching',name=stClean($('sfName').value),emp=stClean($('sfEmp').value),role=t?[...document.querySelectorAll('#pdModal .sf-sub:checked')].map(x=>x.value).join(', '):stClean($('sfRole').value),phone=normPhone($('sfPhone').value),jd=String($('sfJoined').value||'');
  if(name.length<2){toast('Enter the name.');$('sfName').focus();return}
  if(!/^[A-Za-z0-9][A-Za-z0-9 ./\-]{0,19}$/.test(emp)){toast(t?'Enter a valid employment ID (letters, numbers, - or /).':'Enter a valid ID number.');$('sfEmp').focus();return}
  const dup=staffAll().find(x=>x.id.toLowerCase()===emp.toLowerCase());
  if(dup){toast('That ID is already used by '+dup.name+'.');$('sfEmp').focus();return}
- if(!role){toast(t?'Enter the subjects this teacher teaches.':'Enter the work this person does.');$('sfRole').focus();return}
+ if(!role){toast(t?'Select the subjects this teacher teaches.':'Enter the work this person does.');($('sfRole')||$('sfSubSum')).focus();return}
+ const jdt=jd?new Date(jd+'T12:00:00'):null;if(!jdt||isNaN(jdt)||jdt>new Date()){toast('Choose the date joined (not in the future).');$('sfJoined').focus();return}
  let age=0;
  if(t){const raw=String($('sfAge').value).trim();age=Number(raw);if(!raw||!Number.isInteger(age)||age<18||age>75){toast('Enter an age between 18 and 75.');$('sfAge').focus();return}}
  if(!phone){toast('Enter a valid phone number, for example 0712 345 678.');$('sfPhone').focus();return}
- STAFF.push({id:tsNewId(),type:stType,name,empId:emp,role,age:t?age:0,phone,joined:new Date().toISOString(),status:'Active'});
+ STAFF.push({id:tsNewId(),type:stType,name,empId:emp,role,age:t?age:0,phone,joined:jdt.toISOString(),status:'Active'});
  const ok=saveStaff();closePd();rerenderPage();
  toast(name+' added to '+(t?'teaching':'support')+' staff.'+(ok?'':' Saved for this session only.'));
 });
@@ -2388,6 +2391,7 @@ $('pdModal').addEventListener('click',e=>{
   if(k==='settings'||k==='reports')return;
   const m=modules[k];if(m.rows)m.rows.length=0;if(m.stats)m.stats.forEach(x=>{x[1]=zero(x[1]);});
  });
+ IMP_DATASETS.forEach(k=>{BASE_ROWS[k]=[];});STAFF_DEMO.fill(0);applyImports();
 })();
 /* ---------- Details panels and drill-downs: live data only, zero for a new school ---------- */
 (function clearSampleDetails(){
