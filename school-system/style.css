@@ -655,3 +655,15 @@ html.klasora-win .rp-col{flex:1 1 0;min-width:360px}
  body.print-one .rp-row{display:block;overflow:visible}
  body.print-one .rp-col.print-this{display:block;border:0;box-shadow:none;padding:0}
 }
+
+/* All Students page (admin) */
+.as-search{display:flex;gap:8px;flex-wrap:wrap;margin:0 3px 12px}
+.as-search input{flex:1 1 220px;min-width:0;padding:11px 14px;border:1px solid #c5d6f2;border-radius:14px;background:#fff;font:inherit;font-size:14px}
+.as-note{margin:0 4px 10px;color:#5b6b83;font-weight:600}
+.as-class{background:#fff;border:1px solid #c5d6f2;border-radius:18px;padding:12px 14px;margin:0 3px 14px;box-shadow:0 6px 16px #1a3a7018}
+.as-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.as-head h3{margin:0;font:800 16px Manrope,sans-serif;color:#0f2a63}
+.as-head small{color:#5b6b83}
+.as-count{background:#e8f0ff;color:#1d4ed8;font-weight:800;font-size:11px;padding:5px 10px;border-radius:999px;white-space:nowrap}
+.as-class .table-wrap{overflow-x:auto}
+.as-table{min-width:760px}

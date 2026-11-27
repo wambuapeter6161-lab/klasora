@@ -137,7 +137,7 @@ let currentUser=null,lastActive=Date.now(),lastSaved=0;
 const $=id=>document.getElementById(id);
 const navItems=[...document.querySelectorAll('.nav-item')];
 
-function canView(page){if(page==='classteachers'||page==='backup')return false;if(page==='selsubjects')return currentUser.role==='teacher'&&gradeOf(TEACHER_CLASS)==='Grade 9';const p=ROLES[currentUser.role].pages;return p==='*'||p.includes(page)}
+function canView(page){if(page==='classteachers'||page==='backup')return false;if(page==='allstudents')return currentUser.role==='admin';if(page==='selsubjects')return currentUser.role==='teacher'&&gradeOf(TEACHER_CLASS)==='Grade 9';const p=ROLES[currentUser.role].pages;return p==='*'||p.includes(page)}
 function canAdd(page){if(page==='attendance')return false;const a=ROLES[currentUser.role].add;return a==='*'||a.includes(page)}
 
 function getModule(page){
@@ -389,10 +389,11 @@ function showPage(page){
  $('dashboardPage').classList.toggle('hidden',!(isDash&&isAdmin));
  $('roleDashboardPage').classList.toggle('hidden',!(isDash&&!isAdmin));
  const customExams=page==='exams'&&(currentUser.role==='teacher'||currentUser.role==='parent');
- $('genericPage').classList.toggle('hidden',isDash||page==='settings'||page==='backup'||page==='register'||page==='subjects'||page==='classteachers'||customExams);
+ $('genericPage').classList.toggle('hidden',isDash||page==='settings'||page==='backup'||page==='register'||page==='subjects'||page==='classteachers'||page==='allstudents'||customExams);
  $('examsPage').classList.toggle('hidden',!customExams);
  $('subjectsPage').classList.toggle('hidden',page!=='subjects');
  $('classTeachersPage').classList.toggle('hidden',page!=='classteachers');
+ $('allStudentsPage').classList.toggle('hidden',page!=='allstudents');
  $('registerPage').classList.toggle('hidden',page!=='register');
  $('settingsPage').classList.toggle('hidden',page!=='settings');
  $('backupPage').classList.toggle('hidden',page!=='backup');
@@ -415,6 +416,7 @@ function showPage(page){
  if(customExams)renderExams();
  if(page==='subjects')renderSubjects();
  if(page==='classteachers')renderClassTeachers();
+ if(page==='allstudents')renderAllStudents(true);
  const add=(canAdd(page)||(page==='fees'&&currentUser.role==='parent'))&&!(page==='fees'&&!['accountant','parent'].includes(currentUser.role));
  document.querySelectorAll('.heading-actions .btn-primary,.module-toolbar .btn-primary').forEach(b=>b.classList.toggle('hidden',!add));
  document.querySelectorAll('.module-toolbar .btn-primary').forEach(b=>{b.textContent=page==='fees'?(currentUser.role==='parent'?'💳 Report a payment':'＋ Record Payment'):page==='classes'?'＋ Add Teacher':page==='communication'?'＋ Add Announcement':'＋ Add New';});
@@ -1389,6 +1391,55 @@ USERS.forEach(u=>{if(REPLACED[u.id])u.status='Replaced';});
 PILLS.r.push('Replaced');
 modules.classteachers={title:'Add Class Teacher',subtitle:'Create class teacher accounts. Each class has one class teacher.',stats:[['Teachers','0'],['Classes','12'],['Replaced','0']],heads:['ITEM'],rows:[]};
 PAGE_NAMES.classteachers='Add Class Teacher';
+
+/* ----- All Students (admin): every learner grouped by class, searchable, with the class teacher ----- */
+modules.allstudents={title:'All Students',subtitle:'Every learner in the school, grouped by class with their class teacher.',stats:[['Students','0'],['Classes','0'],['Active','0']],heads:['ITEM'],rows:[]};
+PAGE_NAMES.allstudents='All Students';
+let allStuQuery='';
+function allStuGroups(q){
+ q=String(q||'').toLowerCase().trim();
+ const all=allStudents(),by={};
+ all.forEach(s=>{(by[s.cls]=by[s.cls]||[]).push(s);});
+ const order=c=>{const g=gradeOf(c),i=CLASS_LIST.indexOf(g);return(i<0?999:i)*1000+classKeys().indexOf(normKey(c));};
+ const known=[...new Set([...Object.keys(by),...classKeys().filter(c=>teacherOf(c))])];
+ let keys=known.sort((a,b)=>order(a)-order(b)||a.localeCompare(b));
+ let note='';
+ if(q){
+  const low=c=>c.toLowerCase();
+  let hit=keys.filter(c=>low(c)===q||low(c).startsWith(q+' '));
+  if(!hit.length)hit=keys.filter(c=>low(c).includes(q));
+  if(!hit.length)hit=keys.filter(c=>{const t=teacherOf(c);return t&&t.name.toLowerCase().includes(q);});
+  if(hit.length){keys=hit;}
+  else{ /* not a class or teacher: look for a learner by name or admission number */
+   const ppl=all.filter(s=>s.name.toLowerCase().includes(q)||String(s.adm).toLowerCase().includes(q));
+   keys=[...new Set(ppl.map(s=>s.cls))].sort((a,b)=>order(a)-order(b)||a.localeCompare(b));
+   keys.forEach(c=>{by[c]=ppl.filter(s=>s.cls===c);});
+   note=ppl.length?'No class matched, so these are learners matching “'+q+'”.':'';
+  }
+ }else keys=keys.filter(c=>(by[c]||[]).length);
+ return{keys,by,note,total:all.length,classes:Object.keys(by).length,active:all.filter(s=>s.status==='Active').length};
+}
+function renderAllStudents(reset){
+ const host=$('allStudentsPage');if(!host)return;
+ if(reset)allStuQuery='';
+ const g=allStuGroups(allStuQuery),q=allStuQuery.trim();
+ const shown=g.keys.reduce((n,c)=>n+(g.by[c]||[]).length,0);
+ const sections=g.keys.map(c=>{
+  const list=(g.by[c]||[]).slice().sort((a,b)=>a.name.localeCompare(b.name)),t=teacherOf(c);
+  const rows=list.length?list.map((s,i)=>`<tr><td>${i+1}</td><td><button type="button" class="name-link" data-prof="${escH(String(s.adm))}">${escH(s.name)}</button></td><td>${escH(s.adm)}</td><td>${escH(s.gender||'—')}</td><td>${escH(s.dob||'—')}</td><td>${escH(s.gname||'—')}</td><td>${escH(fmtPhone(s.gphone))}</td><td><span class="pill ${pillClass(portalOf(s.gphone))}">${portalOf(s.gphone)}</span></td><td><span class="pill ${pillClass(s.status)}">${escH(s.status)}</span></td></tr>`).join('')
+   :'<tr><td colspan="9" style="text-align:center;color:#8290a4;padding:18px">No students in this class yet.</td></tr>';
+  return`<div class="as-class"><div class="as-head"><div><h3>${escH(c)}</h3><small>Class teacher: <b>${t?escH(t.name):'Not assigned yet'}</b></small></div><span class="as-count">${list.length} student${list.length===1?'':'s'}</span></div>
+   <div class="table-wrap"><table class="as-table"><thead><tr><th>#</th><th>STUDENT</th><th>UPI NO.</th><th>GENDER</th><th>DATE OF BIRTH</th><th>PARENT / GUARDIAN</th><th>PHONE</th><th>PORTAL</th><th>STATUS</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;}).join('');
+ host.innerHTML=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">ALL STUDENTS</span><small>${g.total} student${g.total===1?'':'s'} · ${g.classes} class${g.classes===1?'':'es'} · ${g.active} active</small></div></div>
+  <div class="as-search"><input id="asInput" type="search" list="asClasses" maxlength="40" placeholder="Search a class, e.g. Grade 4" value="${escH(allStuQuery)}" autocomplete="off"><datalist id="asClasses">${classKeys().map(c=>`<option value="${escH(c)}"></option>`).join('')}</datalist>
+   <button type="button" class="btn btn-primary" data-as="search">🔍 Search</button>${q?'<button type="button" class="btn btn-light" data-as="clear">Show all</button>':''}</div>
+  ${q?`<p class="as-note">${g.note?escH(g.note):shown+' student'+(shown===1?'':'s')+' in '+g.keys.length+' class'+(g.keys.length===1?'':'es')+' for “'+escH(q)+'”.'}</p>`:''}
+  ${sections||`<div class="bk-note">${q?'No class, teacher or student matches “'+escH(q)+'”.':'No students have been registered yet.'}</div>`}`;
+}
+$('allStudentsPage').addEventListener('click',e=>{const b=e.target.closest('[data-as]');if(!b||!currentUser||currentUser.role!=='admin')return;
+ if(b.dataset.as==='search'){allStuQuery=$('asInput').value;renderAllStudents();}
+ else if(b.dataset.as==='clear'){renderAllStudents(true);}});
+$('allStudentsPage').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='asInput'){allStuQuery=e.target.value;renderAllStudents();const i=$('asInput');if(i){i.focus();}}});
 const tMatch=(v,page)=>page==='classes'?(String(v)===TEACHER_CLASS||String(v).startsWith(TEACHER_CLASS+' ')):String(v)===TEACHER_CLASS;
 let CT_DIR={};
 const teacherOf=cls=>{const k=normKey(cls),u=USERS.find(u=>u.role==='teacher'&&normKey(u.className)===k&&u.status==='Active');return u||(CT_DIR[k]?{id:'dir_'+k,name:CT_DIR[k],role:'teacher',className:k,status:'Active'}:undefined);};
