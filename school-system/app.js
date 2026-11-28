@@ -3117,3 +3117,34 @@ $('timetablePage').addEventListener('click',e=>{const b=e.target.closest('[data-
  else if(a==='regenall'){if(!confirm('Regenerate the timetable for ALL classes? Every change you made this term will be replaced.'))return;classKeys().forEach(c=>{TT[k][c]=ttGen(c,k,Date.now());});ttSave();renderTimetable();toast('All timetables regenerated.');}});
 $('timetablePage').addEventListener('change',e=>{const s=e.target.closest('select[data-tt="cell"]');if(!s||currentUser.role!=='admin')return;const k=ttTerm();TT[k]=TT[k]||{};const t=TT[k][ttCls]||ttGen(ttCls,k);t[s.dataset.d][+s.dataset.s]=s.value;TT[k][ttCls]=t;ttSave();s.parentNode.style.background=`hsl(${ttHue(s.value)},70%,93%)`;toast('Timetable updated.');});
 (()=>{const s=document.createElement('style');s.textContent='.tt-wrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:12px;margin-top:12px}.tt{border-collapse:collapse;min-width:980px;width:100%}.tt th,.tt td{border:1px solid var(--line);padding:7px 5px;text-align:center;font-size:12px}.tt th{background:#173b70;color:#fff;font-size:11px;white-space:nowrap}.tt th small{display:block;font-weight:400;opacity:.8;margin-top:2px}.tt td.day{font-weight:700;background:#f1f5fb;text-align:left;white-space:nowrap}.tt td.brk{background:#fff3d6;font-weight:700;letter-spacing:3px;writing-mode:vertical-rl;width:34px}.tt select{width:100%;min-width:96px;border:0;background:transparent;font:inherit;font-size:12px;text-align:center;color:inherit}';document.head.appendChild(s);})();
+
+/* ===== Automatic updates: detect a new version, sign out, show the dots screen, reload ===== */
+const KLASORA_BUILD='__BUILD__';
+(function(){
+ if(KLASORA_BUILD.indexOf('__')===0)return;   // only published builds check for updates
+ let busy=false,tick=null;
+ try{if(sessionStorage.getItem('kl_upd')){sessionStorage.removeItem('kl_upd');setTimeout(()=>{try{showLoginMsg('Klasora has been updated. Please sign in.','info')}catch(e){}},1500);}}catch(e){}
+ const st=document.createElement('style');
+ st.textContent='.kl-upd{position:fixed;inset:0;z-index:99999;background:#101b32;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:20px}.kl-upd img{width:84px;height:84px}.kl-upd strong{font-size:20px}.kl-upd small{opacity:.75}.kl-dots{display:flex;gap:8px;margin-top:6px}.kl-dots i{width:11px;height:11px;border-radius:50%;background:#f6b73c;animation:klb 1.2s infinite ease-in-out both}.kl-dots i:nth-child(2){animation-delay:.2s}.kl-dots i:nth-child(3){animation-delay:.4s}@keyframes klb{0%,80%,100%{transform:scale(.4);opacity:.4}40%{transform:scale(1);opacity:1}}.kl-bar{position:fixed;left:12px;right:12px;bottom:14px;z-index:99998;background:#173b70;color:#fff;border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 8px 24px #0006;font-size:13px}.kl-bar button{background:#f6b73c;border:0;border-radius:8px;padding:8px 12px;font-weight:700;color:#101b32;white-space:nowrap}';
+ document.head.appendChild(st);
+ const latest=async()=>{try{const r=await fetch('version.json?t='+Date.now(),{cache:'no-store'});return r.ok?(await r.json()).v:null;}catch(e){return null;}};
+ async function refresh(){
+  clearInterval(tick);const old=document.querySelector('.kl-bar');if(old)old.remove();
+  const o=document.createElement('div');o.className='kl-upd';o.innerHTML='<img src="klasora-icon.svg" alt=""><strong>Updating Klasora</strong><div class="kl-dots"><i></i><i></i><i></i></div><small>Please wait, this takes a few seconds.</small>';document.body.appendChild(o);
+  try{flushPending();}catch(e){}
+  try{if(currentUser)signOut('Klasora is updating.');}catch(e){}
+  try{sessionStorage.setItem('kl_upd','1');}catch(e){}
+  const urls=[location.href.split('#')[0],...[...document.querySelectorAll('script[src],link[rel="stylesheet"]')].map(n=>n.src||n.href)];
+  await Promise.all(urls.map(u=>fetch(u,{cache:'reload'}).catch(()=>0)));
+  setTimeout(()=>location.reload(),1500);
+ }
+ async function check(){
+  if(busy)return;const v=await latest();if(!v||v===KLASORA_BUILD)return;busy=true;
+  if(!currentUser){refresh();return;}
+  let n=30;const bar=document.createElement('div');bar.className='kl-bar';document.body.appendChild(bar);
+  const paint=()=>{bar.innerHTML='<span>A new version of Klasora is ready. You will be signed out in <b>'+n+'</b>s to update. Your work is saved first.</span><button type="button">Update now</button>';bar.querySelector('button').onclick=refresh;};
+  paint();tick=setInterval(()=>{n--;if(n<=0){refresh();return;}paint();},1000);
+ }
+ setTimeout(check,4000);setInterval(check,180000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)check();});
+})();
