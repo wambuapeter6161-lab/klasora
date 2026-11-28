@@ -283,7 +283,8 @@ function userFromFirebase(r){
 async function beginFirebaseSession(r,fresh){
  const u=userFromFirebase(r);
  await Promise.all([loadStudentsRemote(r),loadPromosRemote(r),loadUsersRemote(r),loadAttendanceRemote(r),loadResultsRemote(r),loadFeesRemote(r),loadCommRemote(r),loadOtherMetaRemote(r)]);rebuildStudents();if(r.profile.role==='admin')publishParentLinks();
- store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
+ let prof=null;try{const pm=await KlasoraFirebase.loadMeta(r.schoolId,['profile']);prof=pm.profile||null;}catch(e){}
+ store.set(SCHOOL_KEY,JSON.stringify({name:r.school.name,type:'School',motto:'',logo:'',phones:[],...(prof||{}),poBox:r.school.poBox||'',schoolCode:u.schoolCode}));applySchool();
  startSession(u,fresh);
 }
 $('loginForm').addEventListener('submit',async e=>{
@@ -567,9 +568,10 @@ $('schoolSave').onclick=()=>{
  const sr=readStreams();if(sr.error){toast(sr.error);return}
  const cr=readContacts();if(cr.error){toast(cr.error);return}
  const ok=store.set(SCHOOL_KEY,JSON.stringify({name,type:$('schoolType').value.trim(),motto:$('schoolMotto').value.trim(),logo:pendingLogo,streams:sr.list,phones:cr.list}));
+ saveMetaRemote('profile',{name,type:$('schoolType').value.trim(),motto:$('schoolMotto').value.trim(),logo:pendingLogo,phones:cr.list});
  applySchool();const warn=onStreamsChanged(sr.list);toast((ok?'School profile saved. ':'Saved for this session only. ')+warn);
 };
-$('schoolReset').onclick=()=>{store.del(SCHOOL_KEY);applySchool();onStreamsChanged([]);renderSettings();toast('School profile reset to default.');};
+$('schoolReset').onclick=()=>{store.del(SCHOOL_KEY);saveMetaRemote('profile',null);applySchool();onStreamsChanged([]);renderSettings();toast('School profile reset to default.');};
 
 /* ================= v1.3: Clickable dashboard cards ================= */
 const sec=(heading,rows)=>`<div class="detail-section">${heading}</div>`+rows.map(r=>`<div class="access-row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('');
