@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KLASORA Super Admin</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--text:#1b2433;--muted:#667085;--brand:#1f4fd8;--line:#e2e6ef;--bad:#c62828;--ok:#2e7d32}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#182033;--text:#e8ecf5;--muted:#9aa6bd;--brand:#6f94ff;--line:#2a3550;--bad:#ef6b6b;--ok:#6fcf7f}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:14px;max-width:760px;margin:auto}
+h1{font-size:20px;margin:6px 0 14px}h2{font-size:16px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+input{width:100%;padding:11px;margin:5px 0 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-size:15px}
+button{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:11px 14px;font-size:15px;cursor:pointer}
+button.alt{background:transparent;color:var(--brand);border:1px solid var(--brand);padding:7px 10px;font-size:13px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.muted{color:var(--muted);font-size:13px}.bad{color:var(--bad)}.ok{color:var(--ok)}
+#msg{min-height:20px;margin:6px 0;font-size:14px}.hide{display:none}
+</style>
+</head>
+<body>
+<h1>KLASORA Super Admin</h1>
+<div id="msg"></div>
+
+<div id="loginBox" class="card">
+  <h2>Sign in</h2>
+  <input id="email" type="email" placeholder="Super Admin email" autocomplete="username">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button id="loginBtn">Sign in</button>
+</div>
+
+<div id="app" class="hide">
+  <div class="card">
+    <h2>Register a school</h2>
+    <input id="sName" placeholder="School name">
+    <input id="sPo" placeholder="P.O. Box / location (optional)">
+    <input id="aName" placeholder="Administrator full name">
+    <input id="aEmail" type="email" placeholder="Administrator email">
+    <input id="aPass" type="text" placeholder="Temporary password (min 8 characters)">
+    <button id="createBtn">Register school</button>
+  </div>
+  <div class="card">
+    <h2>Registered schools <button class="alt" id="refreshBtn">Refresh</button></h2>
+    <div id="list" class="muted">Loading...</div>
+  </div>
+  <button class="alt" id="logoutBtn">Sign out</button>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+import { getFirestore, collection, getDocs, doc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCHRxj8hJwpPcwFBW8p-CCBvGzOlJpyfGc",
+  authDomain: "klasora-school.firebaseapp.com",
+  projectId: "klasora-school",
+  storageBucket: "klasora-school.firebasestorage.app",
+  messagingSenderId: "274741090812",
+  appId: "1:274741090812:web:77ce9fdfb32f42d0383a79"
+};
+const SUPER_UID = "PfUW9NmNApMam9e5COf6K9RDv8e2";
+
+const app = initializeApp(firebaseConfig);
+// Second app instance: creates the school admin's login without signing the Super Admin out.
+const app2 = initializeApp(firebaseConfig, "provisioning");
+const auth = getAuth(app), auth2 = getAuth(app2), db = getFirestore(app);
+const $ = id => document.getElementById(id);
+const say = (t, cls = "") => { $("msg").className = cls; $("msg").textContent = t; };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let schools = [];
+
+$("loginBtn").onclick = async () => {
+  try {
+    say("Signing in...");
+    const c = await signInWithEmailAndPassword(auth, $("email").value.trim(), $("password").value);
+    if (c.user.uid !== SUPER_UID) { await signOut(auth); throw new Error("This account is not the Super Admin."); }
+    $("password").value = "";
+    $("loginBox").classList.add("hide"); $("app").classList.remove("hide");
+    say(""); await loadSchools();
+  } catch (e) { say(e.message, "bad"); }
+};
+
+$("logoutBtn").onclick = async () => {
+  await signOut(auth);
+  $("app").classList.add("hide"); $("loginBox").classList.remove("hide"); say("");
+};
+
+async function loadSchools() {
+  const snap = await getDocs(collection(db, "schools"));
+  schools = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.id.localeCompare(b.id));
+  $("list").innerHTML = schools.length ? schools.map(s => `
+    <div class="row">
+      <div><b>${esc(s.code)}</b> · ${esc(s.name)}<br>
+      <span class="muted">${esc(s.adminName)} · ${esc(s.adminEmail)}</span><br>
+      <span class="${s.status === "Active" ? "ok" : "bad"}">${esc(s.status)}</span></div>
+      <button class="alt" data-id="${esc(s.id)}" data-st="${esc(s.status)}">${s.status === "Active" ? "Suspend" : "Activate"}</button>
+    </div>`).join("") : "No schools yet.";
+  $("list").querySelectorAll("button[data-id]").forEach(b => b.onclick = async () => {
+    try {
+      await updateDoc(doc(db, "schools", b.dataset.id), { status: b.dataset.st === "Active" ? "Suspended" : "Active" });
+      await loadSchools();
+    } catch (e) { say(e.message, "bad"); }
+  });
+}
+$("refreshBtn").onclick = loadSchools;
+
+$("createBtn").onclick = async () => {
+  const name = $("sName").value.trim(), po = $("sPo").value.trim();
+  const aName = $("aName").value.trim(), aEmail = $("aEmail").value.trim().toLowerCase(), pass = $("aPass").value;
+  if (name.length < 3 || aName.split(/\s+/).length < 2 || !/^\S+@\S+\.\S+$/.test(aEmail) || pass.length < 8)
+    return say("Enter the school name, administrator's full name, a valid email and a password of 8+ characters.", "bad");
+  try {
+    say("Registering school...");
+    await loadSchools();
+    const next = schools.reduce((m, s) => Math.max(m, parseInt(String(s.code).split("-")[1]) || 0), 0) + 1;
+    const code = "KLS-" + String(next).padStart(3, "0");
+    const cred = await createUserWithEmailAndPassword(auth2, aEmail, pass);
+    const uid = cred.user.uid;
+    await signOut(auth2);
+    await setDoc(doc(db, "schools", code), {
+      code, name, poBox: po, status: "Active", adminUid: uid, adminName: aName, adminEmail: aEmail,
+      createdAt: serverTimestamp()
+    });
+    await setDoc(doc(db, "users", uid), {
+      role: "admin", schoolId: code, name: aName, email: aEmail,
+      classes: [], children: [], mustChangePassword: true, createdAt: serverTimestamp()
+    });
+    ["sName", "sPo", "aName", "aEmail", "aPass"].forEach(i => $(i).value = "");
+    say(`School registered. Code: ${code}. Share the email and temporary password with the administrator securely.`, "ok");
+    await loadSchools();
+  } catch (e) {
+    say(e.code === "auth/email-already-in-use" ? "That email already has an account in this system." : e.message, "bad");
+  }
+};
+</script>
+</body>
+</html>

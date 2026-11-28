@@ -1,0 +1,30 @@
+{
+  "name": "Klasora \u2014 Intelligent School Management",
+  "short_name": "Klasora",
+  "description": "A Willbrod Labs school management platform.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101b32",
+  "theme_color": "#101b32",
+  "icons": [
+    {
+      "src": "klasora-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "klasora-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "klasora-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
