@@ -27,6 +27,9 @@ jobs:
         run: |
           mkdir -p _site/superadmin
           cp -r school-system/. _site/
+          B=${GITHUB_SHA::7}
+          sed -i "s/__BUILD__/$B/g" _site/app.js
+          echo "{\"v\":\"$B\"}" > _site/version.json
           rm -rf _site/school-desktop
           cp superadmin.js superadmin.css klasora-icon.svg _site/superadmin/
           cp superadmin.html _site/superadmin/index.html
