@@ -700,3 +700,38 @@ html.klasora-win .rp-col{flex:1 1 0;min-width:360px}
 .cm-card p{margin:0 0 6px;color:#273b59;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
 .cm-st{font-style:normal;font-size:11px;font-weight:800;color:#8290a4;white-space:nowrap}
 .cm-st.ok{color:#047857}.cm-st.bad{color:#b91c1c}
+
+/* ===== Menu-button layout (replaces the side bar) + classic grey dashboard ===== */
+.main{margin-left:0!important;width:100%!important;background:#dfe4e0!important}
+.menu-toggle{display:grid!important;place-items:center;width:36px;height:30px;border-radius:0!important;border:1px solid #a6aca6!important;background:#d8dcd8!important;color:#2f3b4c!important;font-size:17px;padding:0;margin-right:10px;cursor:pointer}
+.sidebar{display:none!important;position:fixed!important;top:62px!important;left:10px!important;bottom:auto!important;inset:62px auto auto 10px!important;width:230px!important;height:auto!important;max-height:calc(100vh - 76px)!important;transform:none!important;z-index:60!important;background:#172943!important;border:1px solid #0f1d31!important;border-radius:3px!important;box-shadow:0 8px 22px #0006!important;padding:6px!important;overflow-y:auto}
+.sidebar.open{display:flex!important;flex-direction:column}
+.overlay{position:fixed;inset:0;z-index:55;background:transparent!important}
+.sidebar .brand,.sidebar .close-sidebar,.sidebar .user-mini,.sidebar .powered,.sidebar .help-icon,.sidebar .help-card small{display:none!important}
+.sidebar .nav-label{font-size:9px;margin:8px 8px 3px;padding:0}
+.sidebar .nav-item{padding:6px 9px!important;font-size:11px!important;gap:8px;border-radius:2px!important;min-height:0}
+.sidebar .nav-icon{width:16px;font-size:13px}
+.sidebar-bottom{margin-top:6px;padding:6px 0 0!important;border-top:1px solid #ffffff22}
+.sidebar .help-card{display:flex;align-items:center;justify-content:space-between;padding:4px 8px!important;margin:0 0 6px!important}
+.sidebar .help-card strong{font-size:11px}.sidebar .help-card button{font-size:11px}
+.sidebar .signout-full{padding:6px!important;font-size:11px!important;border-radius:2px!important}
+.topbar{background:#fff!important;color:#2f3b4c!important;border-bottom:1px solid #aab1aa!important;box-shadow:none!important;height:56px!important}
+.topbar .top-school,.topbar .crumb-page,.topbar .crumb-sep,.topbar .breadcrumb,.topbar .welcome-box small,.topbar .welcome-box strong{color:#2f3b4c!important}
+.topbar .searchbox{background:#eef1ee!important;border:1px solid #aab1aa!important;border-radius:0!important}
+.topbar .searchbox input,.topbar .searchbox span,.topbar .searchbox kbd{color:#2f3b4c!important}
+.topbar .icon-button{background:#d8dcd8!important;color:#2f3b4c!important;border-radius:0!important}
+.page-heading h1{color:#a03a3d!important;font-size:30px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.page-heading .eyebrow,.page-heading .subheading{color:#2f3b4c!important}
+.page-heading .btn,.back-dash{background:#d8dcd8!important;border:1px solid #a6aca6!important;color:#2f3b4c!important;border-radius:0!important;box-shadow:none!important;font-weight:700;font-size:11px;text-transform:uppercase}
+#dashboardPage,#roleDashboardPage{background:#cfd4cf!important;border:1px solid #aab1aa!important;padding:14px 16px 18px!important;border-radius:0!important;color:#2f3b4c}
+#dashboardPage .stat-card,#roleDashboardPage .stat-card{background:#d3d8d3!important;border:1px solid #aab1aa!important;border-radius:0!important;box-shadow:none!important;min-height:0!important;padding:10px 12px!important}
+#dashboardPage .stat-top span,#roleDashboardPage .stat-top span{color:#2f3b4c!important;font-size:12px;font-weight:700;text-transform:uppercase}
+#dashboardPage .stat-icon,#dashboardPage .sparkline,#roleDashboardPage .stat-icon,#roleDashboardPage .sparkline{display:none!important}
+#dashboardPage .stat-number,#roleDashboardPage .stat-number{color:#9b2f33!important;font-size:34px!important;font-weight:700;text-align:center;padding:10px 0}
+#dashboardPage .stat-foot,#roleDashboardPage .stat-foot{text-align:center;color:#2f3b4c!important;font-size:11px}
+#dashboardPage .panel,#roleDashboardPage .panel,#dashboardPage .card,#roleDashboardPage .card{background:#e4e9e7!important;border:1px solid #aab1aa!important;border-radius:0!important;box-shadow:none!important;color:#2f3b4c}
+#dashboardPage h3,#roleDashboardPage h3,#dashboardPage h4,#roleDashboardPage h4{color:#3f5a82!important;font-size:14px;font-weight:700;text-transform:uppercase}
+#dashboardPage .btn,#roleDashboardPage .btn,#dashboardPage button,#roleDashboardPage button{border-radius:0!important}
+#dashboardPage th,#roleDashboardPage th{background:#b9c1bc!important;color:#2f4a76!important;font-weight:700;text-align:center;border:1px solid #a6aca6!important}
+#dashboardPage td,#roleDashboardPage td{text-align:center;color:#2f3b4c}
+@media(max-width:800px){.page-heading h1{font-size:22px}.sidebar{top:56px!important;inset:56px auto auto 10px!important}}
