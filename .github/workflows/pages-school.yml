@@ -33,6 +33,8 @@ jobs:
           rm -rf _site/school-desktop
           cp superadmin.js superadmin.css klasora-icon.svg _site/superadmin/
           cp superadmin.html _site/superadmin/index.html
+          sed -i "s/__BUILD__/$B/g" _site/superadmin/superadmin.js
+          echo "{\"v\":\"$B\"}" > _site/superadmin/version.json
           if [ -d assets ]; then cp -r assets _site/superadmin/assets; fi
       - name: Publish to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
@@ -41,3 +43,4 @@ jobs:
           publish_dir: ./_site
           publish_branch: gh-pages
           force_orphan: true
+          
