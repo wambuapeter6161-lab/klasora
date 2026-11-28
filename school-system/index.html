@@ -92,6 +92,7 @@
         <button class="nav-item" data-page="inventory"><span class="nav-icon">▧</span>Inventory</button>
         <button class="nav-item" data-page="communication"><span class="nav-icon">✉</span>Communication</button>
         <div class="nav-label">ADMINISTRATION</div>
+        <button class="nav-item" data-page="timetable"><span class="nav-icon">◷</span>Timetable</button>
         <button class="nav-item" data-page="reports"><span class="nav-icon">▤</span>Reports & Analytics</button>
         <button class="nav-item" data-page="backup"><span class="nav-icon">⛁</span>Backup & Restore</button>
         <button class="nav-item" data-page="users"><span class="nav-icon">⚿</span>Users & Roles</button>
@@ -179,6 +180,8 @@
 
         <div id="registerPage" class="page-panel hidden"></div>
 
+        <div id="timetablePage" class="page-panel hidden"></div>
+
         <div id="backupPage" class="page-panel hidden"></div>
 
         <div id="settingsPage" class="page-panel hidden">
@@ -263,6 +266,6 @@
   <div class="modal-backdrop hidden" id="modalBackdrop"><div class="modal"><div class="modal-head"><div><h3 id="modalTitle">Add Record</h3><p>Enter the details below.</p></div><button class="modal-close" id="modalClose">×</button></div><form id="quickForm"><div id="formFields" class="form-fields"></div><div class="modal-actions"><button type="button" class="btn btn-light" id="cancelModal">Cancel</button><button type="submit" class="btn btn-primary">Save Record</button></div></form></div></div>
   <div class="toast" id="toast"></div>
   <script type="module" src="firebase-auth.js?v=4"></script>
-  <script src="app.js?v=fb12"></script>
+  <script src="app.js?v=fb13"></script>
 </body>
 </html>

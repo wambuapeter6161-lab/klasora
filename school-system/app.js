@@ -26,7 +26,7 @@ const store={get(k){try{return localStorage.getItem(k)}catch(e){return mem[k]??n
 const ROLES={
  admin:{label:'Administrator',pages:'*',add:'*',export:true,summary:'Full access to every module and user accounts',
   dash:{title:'Dashboard Overview',sub:"Here's what's happening at your school today."}},
- teacher:{label:'Teacher',pages:['dashboard','students','classes','attendance','exams','library','communication'],add:['attendance','exams'],export:false,summary:'Own class only. Can record attendance and assessments',
+ teacher:{label:'Teacher',pages:['dashboard','students','classes','attendance','exams','library','communication','timetable'],add:['attendance','exams'],export:false,summary:'Own class only. Can record attendance and assessments',
   dash:{title:'My Dashboard',sub:'Your class and learners at a glance.'}},
  accountant:{label:'Accountant',pages:['dashboard','students','fees','expenses','reports','communication'],add:['fees','expenses'],export:true,summary:'Finance modules and reports. Students are read-only',
   dash:{title:'Finance Dashboard',sub:'Fees, payments and expenses at a glance.'}},
@@ -206,9 +206,11 @@ async function loadResultsRemote(r){
    if(x.gen)RES.gen[k+'|'+x.cls]=x.gen;
   });
   if(r.profile.role!=='parent'){
-   const m=await KlasoraFirebase.loadMeta(r.schoolId,r.profile.role==='admin'?['config','stusubj']:r.profile.role==='teacher'?['config','stusubj']:['config']);
+   const m=await KlasoraFirebase.loadMeta(r.schoolId,r.profile.role==='admin'?['config','stusubj','timetable']:r.profile.role==='teacher'?['config','stusubj','timetable']:['config']);
    if(m.config){if(m.config.subj)SUBJ={added:m.config.subj.added||{},removed:m.config.subj.removed||{}};if(Array.isArray(m.config.ts))TS=m.config.ts;}
    if(m.stusubj&&typeof m.stusubj==='object')STUSUBJ=m.stusubj;
+   if(m.timetable&&typeof m.timetable==='object'){TT=m.timetable;store.set('klasora_tt',JSON.stringify(TT));}
+   if(r.profile.role==='admin')try{ttAuto();}catch(e){}
   }
  }catch(e){setTimeout(()=>toast('Could not load exam results ('+(e.code||'error')+').'),1300);}
 }
@@ -389,12 +391,13 @@ function showPage(page){
  $('dashboardPage').classList.toggle('hidden',!(isDash&&isAdmin));
  $('roleDashboardPage').classList.toggle('hidden',!(isDash&&!isAdmin));
  const customExams=page==='exams'&&(currentUser.role==='teacher'||currentUser.role==='parent');
- $('genericPage').classList.toggle('hidden',isDash||page==='settings'||page==='backup'||page==='register'||page==='subjects'||page==='classteachers'||page==='allstudents'||customExams);
+ $('genericPage').classList.toggle('hidden',isDash||page==='settings'||page==='backup'||page==='register'||page==='subjects'||page==='classteachers'||page==='allstudents'||page==='timetable'||customExams);
  $('examsPage').classList.toggle('hidden',!customExams);
  $('subjectsPage').classList.toggle('hidden',page!=='subjects');
  $('classTeachersPage').classList.toggle('hidden',page!=='classteachers');
  $('allStudentsPage').classList.toggle('hidden',page!=='allstudents');
  $('registerPage').classList.toggle('hidden',page!=='register');
+ $('timetablePage').classList.toggle('hidden',page!=='timetable');
  $('settingsPage').classList.toggle('hidden',page!=='settings');
  $('backupPage').classList.toggle('hidden',page!=='backup');
  navItems.forEach(n=>n.classList.toggle('active',n.dataset.page===page));
@@ -413,6 +416,7 @@ function showPage(page){
  if(page==='settings')renderSettings();
  if(page==='backup')renderBackup();
  if(page==='register')renderRegister();
+ if(page==='timetable')renderTimetable();
  if(customExams)renderExams();
  if(page==='subjects')renderSubjects();
  if(page==='classteachers')renderClassTeachers();
@@ -3068,3 +3072,48 @@ window.addEventListener('online',flushPending);
 window.addEventListener('pagehide',flushPending);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)flushPending();});
 
+/* ===== Timetable (admin edits, class teacher views own class) ===== */
+let TT={};try{TT=JSON.parse(store.get('klasora_tt')||'{}')||{}}catch(e){TT={}}
+modules.timetable={title:'Timetable',subtitle:'Weekly lesson timetable for every class, generated automatically each term.',stats:[['Classes','0'],['Lessons / week','40'],['Term','']],heads:['ITEM'],rows:[]};
+const TT_DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday'];
+const TT_COLS=[['08:00','08:40',0],['08:40','09:20',1],['09:20','10:00',2],['10:00','10:30','BREAK'],['10:30','11:10',3],['11:10','11:50',4],['11:50','12:30',5],['12:30','13:30','LUNCH'],['13:30','14:10',6],['14:10','14:50',7]];
+const ttTerm=()=>{const d=new Date(),m=d.getMonth();return d.getFullYear()+'-T'+(m<4?1:m<8?2:3);};
+const ttLabel=k=>'TERM '+k.split('-T')[1]+' · '+k.split('-')[0];
+function ttRng(s){let h=1779033703^s.length;for(let i=0;i<s.length;i++){h=Math.imul(h^s.charCodeAt(i),3432918353);h=h<<13|h>>>19;}return()=>{h=Math.imul(h^h>>>16,2246822507);h=Math.imul(h^h>>>13,3266489909);return((h^=h>>>16)>>>0)/4294967296;};}
+function ttGen(cls,key,salt){
+ const rnd=ttRng(cls+key+(salt||'')),subs=subjectsFor(cls).slice();if(!subs.length)subs.push('Mathematics','English','Kiswahili');
+ const free=38,w=s=>/math|english|kiswahili/i.test(s)?5:/science|social|cre|ire|agri|nutrition|integrated|technical/i.test(s)?3:2,sum=subs.reduce((a,s)=>a+w(s),0);
+ const cnt=subs.map(s=>Math.max(1,Math.round(free*w(s)/sum)));let tot=cnt.reduce((a,b)=>a+b,0);
+ while(tot!==free&&tot>0){const up=tot<free,i=cnt.indexOf(up?Math.min(...cnt):Math.max(...cnt));if(!up&&cnt[i]<2)break;cnt[i]+=up?1:-1;tot+=up?1:-1;}
+ const g={};TT_DAYS.forEach(d=>g[d]=Array(8).fill(''));g.Friday[6]=g.Friday[7]='Games & Clubs';
+ TT_DAYS.forEach(d=>{for(let s=0;s<8;s++){if(g[d][s])continue;
+  const all=subs.map((x,i)=>i).filter(i=>cnt[i]>0),ok=all.filter(i=>subs[i]!==g[d][s-1]),pool=ok.length?ok:all,fresh=pool.filter(i=>!g[d].includes(subs[i])),pick=fresh.length?fresh:pool;
+  if(!pick.length){g[d][s]='Free';continue;}
+  let b=pick[0],bs=-1;pick.forEach(i=>{const v=cnt[i]+rnd()*1.5;if(v>bs){bs=v;b=i;}});g[d][s]=subs[b];cnt[b]--;}});
+ return g;}
+const ttGet=cls=>{const k=ttTerm();return(TT[k]&&TT[k][cls])||ttGen(cls,k);};
+function ttSave(){store.set('klasora_tt',JSON.stringify(TT));saveMetaRemote('timetable',TT);}
+function ttAuto(){const k=ttTerm();TT[k]=TT[k]||{};let ch=false;classKeys().forEach(c=>{if(!TT[k][c]){TT[k][c]=ttGen(c,k);ch=true;}});if(ch)ttSave();}
+let ttCls='';
+const ttHue=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))%360;return h;};
+function renderTimetable(){
+ const admin=currentUser.role==='admin',keys=classKeys(),k=ttTerm();
+ if(admin){ttAuto();if(!keys.includes(ttCls))ttCls=keys[0];}else ttCls=TEACHER_CLASS;
+ const t=ttGet(ttCls),opts=[...subjectsFor(ttCls),'Games & Clubs','Assembly','Free'];
+ const cell=(d,s)=>{const v=t[d][s]||'Free',bg=`background:hsl(${ttHue(v)},70%,93%)`;
+  if(!admin)return`<td style="${bg}">${escH(v)}</td>`;
+  const o=opts.includes(v)?opts:[...opts,v];
+  return`<td style="${bg}"><select data-tt="cell" data-d="${d}" data-s="${s}">${o.map(x=>`<option${x===v?' selected':''}>${escH(x)}</option>`).join('')}</select></td>`;};
+ const head='<th>DAY</th>'+TT_COLS.map(c=>`<th>${typeof c[2]==='string'?c[2]:'LESSON '+(c[2]+1)}<small>${c[0]} - ${c[1]}</small></th>`).join('');
+ const rows=TT_DAYS.map((d,i)=>`<tr><td class="day">${d}</td>${TT_COLS.map(c=>typeof c[2]==='string'?(i===0?`<td class="brk" rowspan="5">${c[2]}</td>`:''):cell(d,c[2])).join('')}</tr>`).join('');
+ $('timetablePage').innerHTML=`<div class="reg-banner ex-banner"><div class="reg-title"><span class="reg-month">TIMETABLE</span><span class="reg-year">${ttLabel(k)}</span><small>${escH(ttCls)}</small></div></div>
+ ${admin?`<div class="sj-chips">${keys.map(c=>`<button type="button" class="sj-chip${c===ttCls?' on':''}" data-tt="cls" data-c="${escH(c)}">${escH(c.replace('Grade ','Gr '))}</button>`).join('')}</div>
+ <div class="bk-actions" style="margin:12px 3px"><button type="button" class="reg-btn" data-tt="regen">Regenerate this class</button><button type="button" class="reg-btn" data-tt="regenall">Regenerate all classes</button></div>`:''}
+ <div class="tt-wrap"><table class="tt"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+ <p class="reg-help">${admin?'Timetables are created automatically at the start of each term. Tap any lesson to change it; changes save at once and teachers see them.':'This is your class timetable. The school administrator can change it.'}</p>`;}
+$('timetablePage').addEventListener('click',e=>{const b=e.target.closest('[data-tt]');if(!b||currentUser.role!=='admin')return;const a=b.dataset.tt,k=ttTerm();
+ if(a==='cls'){ttCls=b.dataset.c;renderTimetable();}
+ else if(a==='regen'){if(!confirm('Regenerate the '+ttCls+' timetable? Your changes to this class will be replaced.'))return;TT[k][ttCls]=ttGen(ttCls,k,Date.now());ttSave();renderTimetable();toast('Timetable regenerated.');}
+ else if(a==='regenall'){if(!confirm('Regenerate the timetable for ALL classes? Every change you made this term will be replaced.'))return;classKeys().forEach(c=>{TT[k][c]=ttGen(c,k,Date.now());});ttSave();renderTimetable();toast('All timetables regenerated.');}});
+$('timetablePage').addEventListener('change',e=>{const s=e.target.closest('select[data-tt="cell"]');if(!s||currentUser.role!=='admin')return;const k=ttTerm();TT[k]=TT[k]||{};const t=TT[k][ttCls]||ttGen(ttCls,k);t[s.dataset.d][+s.dataset.s]=s.value;TT[k][ttCls]=t;ttSave();s.parentNode.style.background=`hsl(${ttHue(s.value)},70%,93%)`;toast('Timetable updated.');});
+(()=>{const s=document.createElement('style');s.textContent='.tt-wrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:12px;margin-top:12px}.tt{border-collapse:collapse;min-width:980px;width:100%}.tt th,.tt td{border:1px solid var(--line);padding:7px 5px;text-align:center;font-size:12px}.tt th{background:#173b70;color:#fff;font-size:11px;white-space:nowrap}.tt th small{display:block;font-weight:400;opacity:.8;margin-top:2px}.tt td.day{font-weight:700;background:#f1f5fb;text-align:left;white-space:nowrap}.tt td.brk{background:#fff3d6;font-weight:700;letter-spacing:3px;writing-mode:vertical-rl;width:34px}.tt select{width:100%;min-width:96px;border:0;background:transparent;font:inherit;font-size:12px;text-align:center;color:inherit}';document.head.appendChild(s);})();
