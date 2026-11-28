@@ -378,3 +378,32 @@ $('detailModal').addEventListener('click',e=>{if(e.target===$('detailModal'))$('
 $('photoInput').addEventListener('change',e=>handlePhoto(e.target.files[0]));
 $('photoRemove').addEventListener('click',()=>{photo='';ls.del(PHOTO);applyPhoto(profile().name);$('photoMsg').textContent='Removing…';syncProfileUp().then(ok=>{$('photoMsg').textContent=ok?'Photo removed.':'Photo removed on this device.'})});
 })();
+
+/* ===== Automatic updates: detect a new version, sign out, show the dots screen, reload ===== */
+const KLASORA_BUILD='__BUILD__';
+(function(){
+ if(KLASORA_BUILD.indexOf('__')===0)return;   // only published builds check for updates
+ let busy=false,tick=null;
+ const st=document.createElement('style');
+ st.textContent='.kl-upd{position:fixed;inset:0;z-index:99999;background:#101b32;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:20px}.kl-upd img{width:84px;height:84px}.kl-upd strong{font-size:20px}.kl-upd small{opacity:.75}.kl-dots{display:flex;gap:8px;margin-top:6px}.kl-dots i{width:11px;height:11px;border-radius:50%;background:#f6b73c;animation:klb 1.2s infinite ease-in-out both}.kl-dots i:nth-child(2){animation-delay:.2s}.kl-dots i:nth-child(3){animation-delay:.4s}@keyframes klb{0%,80%,100%{transform:scale(.4);opacity:.4}40%{transform:scale(1);opacity:1}}.kl-bar{position:fixed;left:12px;right:12px;bottom:14px;z-index:99998;background:#173b70;color:#fff;border-radius:12px;padding:12px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 8px 24px #0006;font-size:13px}.kl-bar button{background:#f6b73c;border:0;border-radius:8px;padding:8px 12px;font-weight:700;color:#101b32;white-space:nowrap}';
+ document.head.appendChild(st);
+ const latest=async()=>{try{const r=await fetch('version.json?t='+Date.now(),{cache:'no-store'});return r.ok?(await r.json()).v:null;}catch(e){return null;}};
+ async function refresh(){
+  clearInterval(tick);const old=document.querySelector('.kl-bar');if(old)old.remove();
+  const o=document.createElement('div');o.className='kl-upd';o.innerHTML='<img src="klasora-icon.svg" alt=""><strong>Updating Klasora</strong><div class="kl-dots"><i></i><i></i><i></i></div><small>Please wait, this takes a few seconds.</small>';document.body.appendChild(o);
+  try{ls.del(SESSION_FLAG);}catch(e){}
+  try{if(auth.currentUser)await signOut(auth);}catch(e){}
+  const urls=[location.href.split('#')[0],...[...document.querySelectorAll('script[src],link[rel="stylesheet"]')].map(n=>n.src||n.href)].filter(u=>u.startsWith(location.origin));
+  await Promise.all(urls.map(u=>fetch(u,{cache:'reload'}).catch(()=>0)));
+  setTimeout(()=>location.reload(),1500);
+ }
+ async function check(){
+  if(busy)return;const v=await latest();if(!v||v===KLASORA_BUILD)return;busy=true;
+  if(!auth.currentUser){refresh();return;}
+  let n=30;const bar=document.createElement('div');bar.className='kl-bar';document.body.appendChild(bar);
+  const paint=()=>{bar.innerHTML='<span>A new version of Klasora is ready. You will be signed out in <b>'+n+'</b>s to update.</span><button type="button">Update now</button>';bar.querySelector('button').onclick=refresh;};
+  paint();tick=setInterval(()=>{n--;if(n<=0){refresh();return;}paint();},1000);
+ }
+ setTimeout(check,4000);setInterval(check,180000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)check();});
+})();
