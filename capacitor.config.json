@@ -3,6 +3,10 @@
   "appName": "Klasora Super Admin",
   "webDir": "www",
   "backgroundColor": "#101b32",
+  "server": {
+    "url": "https://wambuapeter6161-lab.github.io/klasora/superadmin/",
+    "allowNavigation": ["wambuapeter6161-lab.github.io"]
+  },
   "android": {
     "allowMixedContent": false
   }
