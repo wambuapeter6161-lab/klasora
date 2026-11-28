@@ -14,7 +14,12 @@ function createWindow() {
   });
   Menu.setApplicationMenu(null);
   win.maximize();
-  win.loadFile(path.join(__dirname, 'app', 'index.html'));
+  const LIVE = 'https://wambuapeter6161-lab.github.io/klasora/';
+  const offline = () => win.loadFile(path.join(__dirname, 'app', 'index.html'));
+  win.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
+    if (isMainFrame && code !== -3 && url.startsWith(LIVE)) offline();
+  });
+  win.loadURL(LIVE);
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
