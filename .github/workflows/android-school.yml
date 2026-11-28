@@ -37,7 +37,7 @@ jobs:
           for f in index.html style.css app.js firebase-auth.js manifest.webmanifest klasora-icon.svg klasora.ico klasora-192.png klasora-512.png; do
             cp ../school-system/$f www/
           done
-          cp ../assets/icon-only.png ../assets/icon-foreground.png ../assets/icon-background.png assets/
+          cp icon-only.png icon-foreground.png icon-background.png assets/
 
       - name: Add and sync Android project
         run: |
